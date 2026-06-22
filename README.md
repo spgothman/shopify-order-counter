@@ -65,3 +65,4 @@ This app works on Vercel or any Node host that supports Next.js.
 - **Count:** total orders ever (all statuses)
 - **Digits:** 8, zero-padded (e.g. `00000206`)
 - **Branding:** your logo on the left, small Shopify mark in the top-right corner
+ 
