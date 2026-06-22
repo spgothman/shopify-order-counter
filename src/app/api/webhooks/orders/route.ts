@@ -32,7 +32,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
   }
 
-  revalidateTag("order-count");
+  revalidateTag("order-count", { expire: 0 });
+  revalidateTag("order-sales", { expire: 0 });
 
   return NextResponse.json({ ok: true });
 }
