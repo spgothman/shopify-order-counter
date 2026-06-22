@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+:root {
+  --wood-bg: #f0dcc0;
+  --wood-bg-deep: #e8cfad;
+  --frame-outer: #2a2a2a;
+  --frame-inner: #111111;
+  --flap-bg: #1a1a1a;
+  --flap-text: #ffffff;
+  --page-bg: #1f1f1f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at top, #3a3a3a 0%, var(--page-bg) 55%);
+  color: #fff;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.counter-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.counter-shell {
+  width: min(1100px, 100%);
+}
+
+.counter-frame {
+  padding: 14px;
+  border-radius: 28px;
+  background: linear-gradient(145deg, #444 0%, var(--frame-outer) 40%, #111 100%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.counter-panel {
+  position: relative;
+  border-radius: 18px;
+  padding: 52px 36px 32px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(120, 82, 44, 0.04) 0,
+      rgba(120, 82, 44, 0.04) 2px,
+      transparent 2px,
+      transparent 8px
+    ),
+    linear-gradient(180deg, var(--wood-bg) 0%, var(--wood-bg-deep) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.counter-filter {
+  position: absolute;
+  top: 14px;
+  left: 18px;
+  display: flex;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 20px;
+  padding: 2px;
+}
+
+.counter-filter-btn {
+  padding: 4px 14px;
+  border: none;
+  background: transparent;
+  border-radius: 18px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+  white-space: nowrap;
+}
+
+.counter-filter-btn:hover {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.counter-filter-btn-active {
+  background: rgba(0, 0, 0, 0.15);
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.counter-shopify-mark {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 70px;
+  height: auto;
+  opacity: 0.85;
+  mix-blend-mode: multiply;
+}
+
+.counter-content {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.counter-brand {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 132px;
+}
+
+.counter-brand-logo {
+  width: 120px;
+  height: auto;
+  object-fit: contain;
+}
+
+.counter-displays {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+}
+
+.counter-display-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.counter-display-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.counter-display-label {
+  width: 72px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #000;
+  text-align: center;
+  padding: 0;
+  margin-left: -6px;
+}
+
+.counter-status {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.counter-status-error {
+  color: #8b1e1e;
+}
+
+.split-flap-display {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.split-flap-display--stretch {
+  gap: 10px;
+}
+
+.split-flap-tile-wrap {
+  display: contents;
+}
+
+.split-flap-comma {
+  color: rgba(0, 0, 0, 0.75);
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1;
+  margin: 0 -2px;
+  align-self: center;
+  position: relative;
+  top: 26px;
+}
+
+.split-flap-digit {
+  position: relative;
+  width: 72px;
+  height: 96px;
+  perspective: 420px;
+}
+
+.split-flap-static,
+.split-flap-flip,
+.split-flap-underlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--flap-bg);
+  box-shadow:
+    inset 0 -2px 0 rgba(255, 255, 255, 0.08),
+    0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.split-flap-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  background: var(--flap-bg);
+}
+
+.split-flap-half span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 200%;
+  display: grid;
+  place-items: center;
+  font-size: 3.4rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--flap-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.split-flap-half-top {
+  top: 0;
+}
+
+.split-flap-half-top span {
+  top: 0;
+}
+
+.split-flap-half-bottom {
+  bottom: 0;
+}
+
+.split-flap-half-bottom span {
+  bottom: 0;
+}
+
+.split-flap-seam {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 4;
+}
+
+.split-flap-underlay {
+  z-index: 1;
+}
+
+.split-flap-flip {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+}
+
+.split-flap-flip-top {
+  z-index: 3;
+  transform-origin: center bottom;
+  animation: split-flap-top var(--flip-ms, 520ms) ease-in forwards;
+}
+
+.split-flap-flip-bottom {
+  z-index: 2;
+  transform-origin: center top;
+  transform: rotateX(90deg);
+  animation: split-flap-bottom var(--flip-ms, 520ms) ease-out forwards;
+}
+
+@keyframes split-flap-top {
+  0% {
+    transform: rotateX(0deg);
+  }
+  100% {
+    transform: rotateX(-90deg);
+  }
+}
+
+@keyframes split-flap-bottom {
+  0% {
+    transform: rotateX(90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .counter-content {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .split-flap-digit {
+    width: 56px;
+    height: 76px;
+  }
+
+  .split-flap-half span {
+    font-size: 2.6rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .counter-panel {
+    padding: 24px 18px 28px;
+  }
+
+  .split-flap-display {
+    gap: 5px;
+  }
+
+  .split-flap-digit {
+    width: 38px;
+    height: 54px;
+  }
+
+  .split-flap-half span {
+    font-size: 1.75rem;
+  }
+}
