@@ -21,16 +21,22 @@ async function fetchOrderCountFromShopify(
   const { storeDomain, accessToken } = getConfig();
   if (!storeDomain || !accessToken) throw new Error("Shopify credentials are not configured");
 
-  const params = new URLSearchParams({ status: "any", ...extra });
-  const url = `https://${storeDomain}/admin/api/${API_VERSION}/orders/count.json?${params}`;
+  const headers = { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" };
 
-  const response = await fetch(url, {
-    headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
-    cache: "no-store",
-  });
+  // The count endpoint only accepts one status value at a time.
+  // Fetch open + closed separately and sum to exclude cancelled orders,
+  // matching how Shopify Analytics counts orders.
+  const counts = await Promise.all(
+    (["open", "closed"] as const).map(async (status) => {
+      const params = new URLSearchParams({ status, ...extra });
+      const url = `https://${storeDomain}/admin/api/${API_VERSION}/orders/count.json?${params}`;
+      const response = await fetch(url, { headers, cache: "no-store" });
+      if (!response.ok) throw new Error(`Shopify API error (${response.status}): ${await response.text()}`);
+      return ((await response.json()) as { count: number }).count;
+    }),
+  );
 
-  if (!response.ok) throw new Error(`Shopify API error (${response.status}): ${await response.text()}`);
-  return ((await response.json()) as { count: number }).count;
+  return counts[0] + counts[1];
 }
 
 export const getCachedOrderCount = unstable_cache(
@@ -81,7 +87,7 @@ async function fetchOrderSalesFromShopify(
   const baseParams = new URLSearchParams({
     status: "any",
     limit: "250",
-    fields: "subtotal_price,total_shipping_price_set,source_name",
+    fields: "subtotal_price,total_shipping_price_set,source_name,cancelled_at,financial_status",
     ...extra,
   });
   let nextUrl: string | null =
@@ -101,10 +107,14 @@ async function fetchOrderSalesFromShopify(
         subtotal_price: string;
         total_shipping_price_set?: { shop_money?: { amount?: string } };
         source_name?: string;
+        cancelled_at?: string | null;
+        financial_status?: string;
       }>;
     };
     for (const order of data.orders) {
       if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
+      if (order.cancelled_at) continue;
+      if (order.financial_status === "voided" || order.financial_status === "refunded") continue;
       total += parseFloat(order.subtotal_price) || 0;
       total += parseFloat(order.total_shipping_price_set?.shop_money?.amount ?? "0") || 0;
     }
