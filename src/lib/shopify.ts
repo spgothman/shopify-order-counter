@@ -32,8 +32,6 @@ async function fetchOrderCountFromShopify(
   let nextUrl: string | null =
     `https://${storeDomain}/admin/api/${API_VERSION}/orders.json?${baseParams}`;
   let count = 0;
-  // TEMPORARY: breakdown by source_name
-  const sourceCounts: Record<string, number> = {};
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -51,26 +49,21 @@ async function fetchOrderCountFromShopify(
     };
 
     for (const order of data.orders) {
-      const src = order.source_name ?? "(undefined)";
-      if (COUNT_EXCLUDED_SOURCE_NAMES.has(src)) continue;
+      if (COUNT_EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       if (order.cancelled_at) continue;
       if (order.financial_status === "voided") continue;
       count++;
-      sourceCounts[src] = (sourceCounts[src] ?? 0) + 1;
     }
 
     nextUrl = getNextLink(response.headers.get("Link"));
   }
-
-  // TEMPORARY: single summary log — remove once discrepancy is identified
-  console.log(`[shopify:count] total=${count} breakdown:`, JSON.stringify(sourceCounts));
 
   return count;
 }
 
 export const getCachedOrderCount = unstable_cache(
   async () => fetchOrderCountFromShopify(),
-  ["shopify-order-count"],
+  ["shopify-order-count-v2"],
   { tags: ["order-count"], revalidate: 60 },
 );
 
@@ -87,26 +80,25 @@ export async function getOrderCount(options: {
 
 // ── Sales channel exclusions ───────────────────────────────────────────────────
 // Channels excluded from the ORDER COUNT.
-// shopify_draft_order is NOT excluded — Shopify Analytics counts manually-created
-// draft orders (phone orders, wholesale, etc.) as real customer orders.
-// Loop Returns and 1615469 are excluded because they create system orders
-// (exchanges, app-internal) that Shopify Analytics does not count.
+// Matches the channels visible in Shopify Analytics for this store.
 const COUNT_EXCLUDED_SOURCE_NAMES = new Set([
   "108220678145", // Foundational
   "1424624",      // Syncio Multi Store Sync
   "1662707",      // Loop Returns (exchange orders)
   "1615469",      // Unknown app
+  "tiktok",       // TikTok — not in Shopify Analytics channel list
+  "2329312",      // Facebook & Instagram — not in Shopify Analytics channel list
 ]);
 
-// Channels excluded from the $ SALES total — superset of the count exclusions.
-// Loop Returns and the unknown app (1615469) create orders Shopify Analytics
-// counts but nets to $0 for sales, so we exclude them from the sales figure only.
+// Channels excluded from the $ SALES total.
 const SALES_EXCLUDED_SOURCE_NAMES = new Set([
   "shopify_draft_order", // Draft Orders
   "108220678145",        // Foundational
   "1424624",             // Syncio Multi Store Sync
   "1662707",             // Loop Returns (exchange orders)
   "1615469",             // Unknown app
+  "tiktok",              // TikTok
+  "2329312",             // Facebook & Instagram
 ]);
 
 // ── Order Sales ────────────────────────────────────────────────────────────────
@@ -188,7 +180,7 @@ async function fetchOrderSalesFromShopify(
 
 export const getCachedAllTimeSales = unstable_cache(
   async () => fetchOrderSalesFromShopify(),
-  ["shopify-all-time-sales"],
+  ["shopify-all-time-sales-v2"],
   { tags: ["order-sales"], revalidate: 3600 },
 );
 
