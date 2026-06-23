@@ -87,15 +87,20 @@ async function fetchOrderSalesFromShopify(
   const baseParams = new URLSearchParams({
     status: "any",
     limit: "250",
-    // current_total_price and current_total_tax reflect the order's state AFTER
-    // any edits, returns, and refunds. current_total_price - current_total_tax
-    // equals net sales + shipping charges (no tax), matching Shopify Analytics.
-    fields: "current_total_price,current_total_tax,source_name,cancelled_at,financial_status",
+    // current_subtotal_price = line item total after all discounts and product
+    // refunds (no shipping, no tax) — matches Shopify Analytics "Net Sales".
+    // total_shipping_price_set = original shipping before any refunds.
+    // refunds.refund_shipping_lines = shipping amounts refunded (2024-10 field).
+    fields: "current_subtotal_price,total_shipping_price_set,refunds,source_name,cancelled_at,financial_status",
     ...extra,
   });
   let nextUrl: string | null =
     `https://${storeDomain}/admin/api/${API_VERSION}/orders.json?${baseParams}`;
   let total = 0;
+  // TEMPORARY: debug logging
+  let pageNum = 0;
+  let totalIncluded = 0;
+  const includedSourceCounts: Record<string, number> = {};
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -107,21 +112,56 @@ async function fetchOrderSalesFromShopify(
 
     const data = (await response.json()) as {
       orders: Array<{
-        current_total_price: string;
-        current_total_tax: string;
+        current_subtotal_price: string;
+        total_shipping_price_set?: { shop_money?: { amount?: string } };
+        refunds?: Array<{
+          refund_shipping_lines?: Array<{
+            subtotal_amount_set?: { shop_money?: { amount?: string } };
+          }>;
+        }>;
         source_name?: string;
         cancelled_at?: string | null;
         financial_status?: string;
       }>;
     };
+
+    pageNum++;
+    let pageIncluded = 0;
+
     for (const order of data.orders) {
-      if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
+      const src = order.source_name ?? "(undefined)";
+      if (EXCLUDED_SOURCE_NAMES.has(src)) continue;
       if (order.cancelled_at) continue;
       if (order.financial_status === "voided" || order.financial_status === "refunded") continue;
-      total += (parseFloat(order.current_total_price) || 0) - (parseFloat(order.current_total_tax) || 0);
+
+      // TEMPORARY: log every included order's source_name
+      console.log(`[shopify:sales] INCLUDED src="${src}" financial_status="${order.financial_status ?? ""}"`);
+
+      pageIncluded++;
+      totalIncluded++;
+      includedSourceCounts[src] = (includedSourceCounts[src] ?? 0) + 1;
+
+      const netSales = parseFloat(order.current_subtotal_price) || 0;
+      const originalShipping =
+        parseFloat(order.total_shipping_price_set?.shop_money?.amount ?? "0") || 0;
+      const refundedShipping = (order.refunds ?? []).reduce((refundSum, refund) => {
+        return refundSum + (refund.refund_shipping_lines ?? []).reduce((lineSum, rsl) => {
+          return lineSum + (parseFloat(rsl.subtotal_amount_set?.shop_money?.amount ?? "0") || 0);
+        }, 0);
+      }, 0);
+
+      total += netSales + Math.max(0, originalShipping - refundedShipping);
     }
+
+    // TEMPORARY: per-page summary
+    console.log(`[shopify:sales] page ${pageNum}: fetched ${data.orders.length} orders, included ${pageIncluded}`);
+
     nextUrl = getNextLink(response.headers.get("Link"));
   }
+
+  // TEMPORARY: final summary
+  console.log(`[shopify:sales] TOTAL included orders: ${totalIncluded}`);
+  console.log(`[shopify:sales] source_name breakdown:`, JSON.stringify(includedSourceCounts, null, 2));
 
   return Math.round(total);
 }
