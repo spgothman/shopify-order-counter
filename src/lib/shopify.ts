@@ -87,7 +87,10 @@ async function fetchOrderSalesFromShopify(
   const baseParams = new URLSearchParams({
     status: "any",
     limit: "250",
-    fields: "subtotal_price,total_shipping_price_set,source_name,cancelled_at,financial_status",
+    // current_total_price and current_total_tax reflect the order's state AFTER
+    // any edits, returns, and refunds. current_total_price - current_total_tax
+    // equals net sales + shipping charges (no tax), matching Shopify Analytics.
+    fields: "current_total_price,current_total_tax,source_name,cancelled_at,financial_status",
     ...extra,
   });
   let nextUrl: string | null =
@@ -104,8 +107,8 @@ async function fetchOrderSalesFromShopify(
 
     const data = (await response.json()) as {
       orders: Array<{
-        subtotal_price: string;
-        total_shipping_price_set?: { shop_money?: { amount?: string } };
+        current_total_price: string;
+        current_total_tax: string;
         source_name?: string;
         cancelled_at?: string | null;
         financial_status?: string;
@@ -115,8 +118,7 @@ async function fetchOrderSalesFromShopify(
       if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       if (order.cancelled_at) continue;
       if (order.financial_status === "voided" || order.financial_status === "refunded") continue;
-      total += parseFloat(order.subtotal_price) || 0;
-      total += parseFloat(order.total_shipping_price_set?.shop_money?.amount ?? "0") || 0;
+      total += (parseFloat(order.current_total_price) || 0) - (parseFloat(order.current_total_tax) || 0);
     }
     nextUrl = getNextLink(response.headers.get("Link"));
   }
