@@ -65,6 +65,8 @@ const EXCLUDED_SOURCE_NAMES = new Set([
   "shopify_draft_order", // Draft Orders
   "108220678145",        // Foundational
   "1424624",             // Syncio Multi Store Sync
+  "1662707",             // Loop Returns (exchange orders)
+  "1615469",             // Unknown app (testing exclusion)
 ]);
 
 // ── Order Sales ────────────────────────────────────────────────────────────────
@@ -97,10 +99,6 @@ async function fetchOrderSalesFromShopify(
   let nextUrl: string | null =
     `https://${storeDomain}/admin/api/${API_VERSION}/orders.json?${baseParams}`;
   let total = 0;
-  // TEMPORARY: debug logging
-  let pageNum = 0;
-  let totalIncluded = 0;
-  const includedSourceCounts: Record<string, number> = {};
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -125,21 +123,10 @@ async function fetchOrderSalesFromShopify(
       }>;
     };
 
-    pageNum++;
-    let pageIncluded = 0;
-
     for (const order of data.orders) {
-      const src = order.source_name ?? "(undefined)";
-      if (EXCLUDED_SOURCE_NAMES.has(src)) continue;
+      if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       if (order.cancelled_at) continue;
       if (order.financial_status === "voided" || order.financial_status === "refunded") continue;
-
-      // TEMPORARY: log every included order's source_name
-      console.log(`[shopify:sales] INCLUDED src="${src}" financial_status="${order.financial_status ?? ""}"`);
-
-      pageIncluded++;
-      totalIncluded++;
-      includedSourceCounts[src] = (includedSourceCounts[src] ?? 0) + 1;
 
       const netSales = parseFloat(order.current_subtotal_price) || 0;
       const originalShipping =
@@ -153,15 +140,8 @@ async function fetchOrderSalesFromShopify(
       total += netSales + Math.max(0, originalShipping - refundedShipping);
     }
 
-    // TEMPORARY: per-page summary
-    console.log(`[shopify:sales] page ${pageNum}: fetched ${data.orders.length} orders, included ${pageIncluded}`);
-
     nextUrl = getNextLink(response.headers.get("Link"));
   }
-
-  // TEMPORARY: final summary
-  console.log(`[shopify:sales] TOTAL included orders: ${totalIncluded}`);
-  console.log(`[shopify:sales] source_name breakdown:`, JSON.stringify(includedSourceCounts, null, 2));
 
   return Math.round(total);
 }
