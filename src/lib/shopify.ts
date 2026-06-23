@@ -87,6 +87,8 @@ async function fetchOrderSalesFromShopify(
   let nextUrl: string | null =
     `https://${storeDomain}/admin/api/${API_VERSION}/orders.json?${baseParams}`;
   let total = 0;
+  // TEMPORARY: collect unique source_name values for debugging
+  const seenSourceNames = new Set<string>();
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -104,12 +106,22 @@ async function fetchOrderSalesFromShopify(
       }>;
     };
     for (const order of data.orders) {
+      // TEMPORARY: log each unique source_name so we can verify channel filter values
+      const src = order.source_name ?? "(undefined)";
+      if (!seenSourceNames.has(src)) {
+        seenSourceNames.add(src);
+        console.log("[shopify] source_name seen:", src, "| excluded:", EXCLUDED_SOURCE_NAMES.has(src));
+      }
+
       if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       total += parseFloat(order.subtotal_price) || 0;
       total += parseFloat(order.total_shipping_price_set?.shop_money?.amount ?? "0") || 0;
     }
     nextUrl = getNextLink(response.headers.get("Link"));
   }
+
+  // TEMPORARY: summary log
+  console.log("[shopify] all source_names found:", [...seenSourceNames].sort().join(", "));
 
   return Math.round(total);
 }
