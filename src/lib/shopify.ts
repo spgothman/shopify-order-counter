@@ -51,7 +51,10 @@ async function fetchOrderCountFromShopify(
     for (const order of data.orders) {
       if (COUNT_EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       if (order.cancelled_at) continue;
+      // Exclude orders where payment was never completed:
+      // voided = reversed before capture; pending/authorized = invoice not yet paid
       if (order.financial_status === "voided") continue;
+      if (order.financial_status === "pending") continue;
       count++;
     }
 
@@ -63,7 +66,7 @@ async function fetchOrderCountFromShopify(
 
 export const getCachedOrderCount = unstable_cache(
   async () => fetchOrderCountFromShopify(),
-  ["shopify-order-count-v2"],
+  ["shopify-order-count-v6"],
   { tags: ["order-count"], revalidate: 60 },
 );
 
@@ -80,21 +83,19 @@ export async function getOrderCount(options: {
 
 // ── Sales channel exclusions ───────────────────────────────────────────────────
 // Channels excluded from the ORDER COUNT.
-// Matches the channels visible in Shopify Analytics for this store.
+// NOTE: 1424624 = Gorgias (INCLUDE), 108220678145 = Siena for BPN (INCLUDE).
+// These were previously misidentified as Syncio and Foundational.
+// The actual Syncio and Foundational source_names are unknown (no orders in data).
 const COUNT_EXCLUDED_SOURCE_NAMES = new Set([
-  "108220678145", // Foundational
-  "1424624",      // Syncio Multi Store Sync
-  "1662707",      // Loop Returns (exchange orders)
-  "1615469",      // Unknown app
-  "tiktok",       // TikTok — not in Shopify Analytics channel list
-  "2329312",      // Facebook & Instagram — not in Shopify Analytics channel list
+  "1662707", // Loop Returns (exchange orders)
+  "1615469", // Unknown app
+  "tiktok",  // TikTok
+  "2329312", // Facebook & Instagram
 ]);
 
 // Channels excluded from the $ SALES total.
 const SALES_EXCLUDED_SOURCE_NAMES = new Set([
   "shopify_draft_order", // Draft Orders
-  "108220678145",        // Foundational
-  "1424624",             // Syncio Multi Store Sync
   "1662707",             // Loop Returns (exchange orders)
   "1615469",             // Unknown app
   "tiktok",              // TikTok
@@ -180,7 +181,7 @@ async function fetchOrderSalesFromShopify(
 
 export const getCachedAllTimeSales = unstable_cache(
   async () => fetchOrderSalesFromShopify(),
-  ["shopify-all-time-sales-v2"],
+  ["shopify-all-time-sales-v3"],
   { tags: ["order-sales"], revalidate: 3600 },
 );
 

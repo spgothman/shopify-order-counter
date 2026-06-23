@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface SplitFlapDigitProps {
   digit: string;
   spinDelay?: number;
+  /** When false, skip the spin-in animation on mount (used during loading placeholder) */
+  animate?: boolean;
 }
 
 const FLIP_MS = 520;
@@ -18,10 +20,13 @@ function isNumeric(d: string): boolean {
 function buildSpinSequence(target: string): string[] {
   const n = parseInt(target, 10);
   if (isNaN(n)) return [];
-  return Array.from({ length: 10 }, (_, i) => String((n + 1 + i) % 10));
+  // Always complete one full pass 0→9, then continue to target.
+  // Length: 10 + n (e.g. target=0 → 10 steps, target=5 → 15 steps, target=9 → 19 steps).
+  // Starting from the "0" initial state, the sequence begins at 1.
+  return Array.from({ length: 10 + n }, (_, i) => String((i + 1) % 10));
 }
 
-export function SplitFlapDigit({ digit, spinDelay = 0 }: SplitFlapDigitProps) {
+export function SplitFlapDigit({ digit, spinDelay = 0, animate = true }: SplitFlapDigitProps) {
   // Non-numeric tiles ($ , etc.) start showing immediately
   const [shown, setShown] = useState(() => (isNumeric(digit) ? "0" : digit));
   const [next, setNext] = useState(() => (isNumeric(digit) ? "0" : digit));
@@ -65,9 +70,9 @@ export function SplitFlapDigit({ digit, spinDelay = 0 }: SplitFlapDigitProps) {
     [flush],
   );
 
-  // Spin-in on mount (numeric digits only)
+  // Spin-in on mount (numeric digits only, skipped on loading placeholder mounts)
   useEffect(() => {
-    if (!isNumeric(digit)) {
+    if (!isNumeric(digit) || !animate) {
       lastQueuedRef.current = digit;
       return;
     }

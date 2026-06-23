@@ -129,6 +129,7 @@ export function OrderCounter() {
                   <SplitFlapDisplay
                     tiles={countTiles(count)}
                     commaAfter={[1, 4]}
+                    animate={!isCountLoading}
                     key={`count-${isCountLoading ? "pre" : "live"}-${period}`}
                   />
                 </div>
@@ -140,6 +141,7 @@ export function OrderCounter() {
                     <SplitFlapDisplay
                       tiles={salesToTiles(sales)}
                       commaAfter={[1, 4]}
+                      animate={!isSalesLoading}
                       key={`sales-${isSalesLoading ? "pre" : "live"}`}
                     />
                   </div>
