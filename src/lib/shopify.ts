@@ -21,22 +21,51 @@ async function fetchOrderCountFromShopify(
   const { storeDomain, accessToken } = getConfig();
   if (!storeDomain || !accessToken) throw new Error("Shopify credentials are not configured");
 
-  const headers = { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" };
+  // Paginate through all orders and apply the same source_name + status filters
+  // as the sales calculation so the count matches Shopify Analytics exactly.
+  const baseParams = new URLSearchParams({
+    status: "any",
+    limit: "250",
+    fields: "source_name,cancelled_at,financial_status",
+    ...extra,
+  });
+  let nextUrl: string | null =
+    `https://${storeDomain}/admin/api/${API_VERSION}/orders.json?${baseParams}`;
+  let count = 0;
+  // TEMPORARY: breakdown by source_name
+  const sourceCounts: Record<string, number> = {};
 
-  // The count endpoint only accepts one status value at a time.
-  // Fetch open + closed separately and sum to exclude cancelled orders,
-  // matching how Shopify Analytics counts orders.
-  const counts = await Promise.all(
-    (["open", "closed"] as const).map(async (status) => {
-      const params = new URLSearchParams({ status, ...extra });
-      const url = `https://${storeDomain}/admin/api/${API_VERSION}/orders/count.json?${params}`;
-      const response = await fetch(url, { headers, cache: "no-store" });
-      if (!response.ok) throw new Error(`Shopify API error (${response.status}): ${await response.text()}`);
-      return ((await response.json()) as { count: number }).count;
-    }),
-  );
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Shopify API error (${response.status}): ${await response.text()}`);
 
-  return counts[0] + counts[1];
+    const data = (await response.json()) as {
+      orders: Array<{
+        source_name?: string;
+        cancelled_at?: string | null;
+        financial_status?: string;
+      }>;
+    };
+
+    for (const order of data.orders) {
+      const src = order.source_name ?? "(undefined)";
+      if (COUNT_EXCLUDED_SOURCE_NAMES.has(src)) continue;
+      if (order.cancelled_at) continue;
+      if (order.financial_status === "voided") continue;
+      count++;
+      sourceCounts[src] = (sourceCounts[src] ?? 0) + 1;
+    }
+
+    nextUrl = getNextLink(response.headers.get("Link"));
+  }
+
+  // TEMPORARY: single summary log — remove once discrepancy is identified
+  console.log(`[shopify:count] total=${count} breakdown:`, JSON.stringify(sourceCounts));
+
+  return count;
 }
 
 export const getCachedOrderCount = unstable_cache(
@@ -57,16 +86,27 @@ export async function getOrderCount(options: {
 }
 
 // ── Sales channel exclusions ───────────────────────────────────────────────────
-// Orders whose source_name matches any of these are excluded from the $ sales total.
-// "draft_orders" is the standard Shopify value for the Draft Orders channel.
-// Syncio and Foundational use whatever source_name their app registers — update
-// these strings if the numbers don't match your Shopify Analytics report.
-const EXCLUDED_SOURCE_NAMES = new Set([
+// Channels excluded from the ORDER COUNT.
+// shopify_draft_order is NOT excluded — Shopify Analytics counts manually-created
+// draft orders (phone orders, wholesale, etc.) as real customer orders.
+// Loop Returns and 1615469 are excluded because they create system orders
+// (exchanges, app-internal) that Shopify Analytics does not count.
+const COUNT_EXCLUDED_SOURCE_NAMES = new Set([
+  "108220678145", // Foundational
+  "1424624",      // Syncio Multi Store Sync
+  "1662707",      // Loop Returns (exchange orders)
+  "1615469",      // Unknown app
+]);
+
+// Channels excluded from the $ SALES total — superset of the count exclusions.
+// Loop Returns and the unknown app (1615469) create orders Shopify Analytics
+// counts but nets to $0 for sales, so we exclude them from the sales figure only.
+const SALES_EXCLUDED_SOURCE_NAMES = new Set([
   "shopify_draft_order", // Draft Orders
   "108220678145",        // Foundational
   "1424624",             // Syncio Multi Store Sync
   "1662707",             // Loop Returns (exchange orders)
-  "1615469",             // Unknown app (testing exclusion)
+  "1615469",             // Unknown app
 ]);
 
 // ── Order Sales ────────────────────────────────────────────────────────────────
@@ -124,7 +164,7 @@ async function fetchOrderSalesFromShopify(
     };
 
     for (const order of data.orders) {
-      if (EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
+      if (SALES_EXCLUDED_SOURCE_NAMES.has(order.source_name ?? "")) continue;
       if (order.cancelled_at) continue;
       if (order.financial_status === "voided" || order.financial_status === "refunded") continue;
 
