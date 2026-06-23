@@ -305,10 +305,98 @@ body {
   }
 }
 
+/* ── Password gate ───────────────────────────────────────────────────────────── */
+
+.pw-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 48px 44px;
+}
+
+.pw-logo {
+  opacity: 0.9;
+}
+
+.pw-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.pw-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.pw-input {
+  width: 220px;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  color: #000;
+  font-size: 1.1rem;
+  font-family: var(--font-geist-mono), monospace;
+  letter-spacing: 0.15em;
+  text-align: center;
+  outline: none;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: border-color 0.15s;
+}
+
+.pw-input:focus {
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
+.pw-input::placeholder {
+  color: rgba(0, 0, 0, 0.25);
+  letter-spacing: 0.05em;
+}
+
+.pw-btn {
+  padding: 10px 22px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  color: #000;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pw-btn:hover {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.pw-error {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8b1e1e;
+}
+
+/* ── 900px: stack brand + display vertically ─────────────────────────────────── */
 @media (max-width: 900px) {
   .counter-content {
     flex-direction: column;
+    align-items: center;
     gap: 20px;
+  }
+
+  .counter-brand {
+    width: auto;
   }
 
   .split-flap-digit {
@@ -321,21 +409,201 @@ body {
   }
 }
 
+/* ── 640px: tighten padding, shrink tiles ─────────────────────────────────────── */
 @media (max-width: 640px) {
+  .counter-page {
+    padding: 1rem;
+  }
+
+  .counter-frame {
+    padding: 10px;
+  }
+
+  /* Keep top padding ≥48px so filter pill + shopify mark never overlap content */
   .counter-panel {
-    padding: 24px 18px 28px;
+    padding: 48px 16px 24px;
+  }
+
+  .counter-shopify-mark {
+    width: 54px;
+  }
+
+  .counter-brand-logo {
+    width: 90px;
+    height: auto;
+  }
+
+  .counter-brand {
+    width: 90px;
   }
 
   .split-flap-display {
-    gap: 5px;
+    gap: 4px;
   }
 
   .split-flap-digit {
-    width: 38px;
-    height: 54px;
+    width: 44px;
+    height: 60px;
   }
 
   .split-flap-half span {
-    font-size: 1.75rem;
+    font-size: 2rem;
+  }
+
+  .split-flap-comma {
+    font-size: 1.7rem;
+    top: 20px;
+  }
+
+  .counter-display-label {
+    width: 56px;
+    margin-left: 0;
+  }
+}
+
+/* ── 480px: smaller phones / landscape ───────────────────────────────────────── */
+@media (max-width: 480px) {
+  .counter-page {
+    padding: 0.75rem;
+  }
+
+  .counter-frame {
+    padding: 8px;
+  }
+
+  .counter-panel {
+    padding: 46px 12px 20px;
+  }
+
+  .counter-shopify-mark {
+    width: 44px;
+  }
+
+  .counter-content {
+    gap: 14px;
+  }
+
+  .counter-brand-logo {
+    width: 72px;
+    height: auto;
+  }
+
+  .counter-brand {
+    width: 72px;
+  }
+
+  .split-flap-display {
+    gap: 3px;
+  }
+
+  .split-flap-digit {
+    width: 36px;
+    height: 49px;
+  }
+
+  .split-flap-half span {
+    font-size: 1.65rem;
+  }
+
+  .split-flap-comma {
+    font-size: 1.4rem;
+    top: 16px;
+  }
+
+  .counter-display-label {
+    width: 46px;
+    font-size: 0.55rem;
+  }
+
+  .pw-panel {
+    padding: 32px 28px 36px;
+    gap: 16px;
+  }
+
+  .pw-input {
+    width: 180px;
+  }
+}
+
+/* ── 400px: iPhone SE (375px) and iPhone 14/15 (390px) ───────────────────────── */
+@media (max-width: 400px) {
+  .counter-page {
+    padding: 0.5rem;
+  }
+
+  .counter-frame {
+    padding: 6px;
+  }
+
+  .counter-panel {
+    padding: 44px 8px 16px;
+  }
+
+  .counter-filter {
+    left: 10px;
+  }
+
+  .counter-shopify-mark {
+    width: 36px;
+    right: 10px;
+  }
+
+  .counter-content {
+    gap: 10px;
+  }
+
+  .counter-displays {
+    gap: 8px;
+  }
+
+  .counter-brand-logo {
+    width: 56px;
+    height: auto;
+  }
+
+  .counter-brand {
+    width: 56px;
+  }
+
+  .split-flap-display {
+    gap: 2px;
+  }
+
+  .split-flap-digit {
+    width: 28px;
+    height: 38px;
+  }
+
+  .split-flap-half span {
+    font-size: 1.25rem;
+  }
+
+  .split-flap-comma {
+    font-size: 1.05rem;
+    top: 10px;
+    margin: 0 -1px;
+  }
+
+  .counter-display-label {
+    width: 36px;
+    font-size: 0.5rem;
+  }
+
+  .pw-panel {
+    padding: 28px 20px 32px;
+    gap: 14px;
+  }
+
+  .pw-form {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .pw-input {
+    width: 100%;
+  }
+
+  .pw-btn {
+    width: 100%;
   }
 }
