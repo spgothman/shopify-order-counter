@@ -34,10 +34,13 @@ npm run dev
 2. Create an app (enable custom app development if prompted).
 3. Configure **Admin API scopes**:
    - `read_orders`
+   - `read_all_orders` (required for Sales Report YoY and any data older than 60 days)
 4. Install the app on your store.
 5. Copy the **Admin API access token** into `SHOPIFY_ACCESS_TOKEN`.
 6. Copy the **API secret key** into `SHOPIFY_API_SECRET`.
 7. Set `SHOPIFY_STORE_DOMAIN` to your store domain, e.g. `your-store.myshopify.com`.
+
+Without `read_all_orders`, Shopify silently returns **zero orders** for any date older than 60 days. That makes Compare YoY look like `$0.00` for last year. After adding the scope, reinstall the custom app so the access token is reissued.
 
 ### 2. Enable near real-time updates (webhook)
 
