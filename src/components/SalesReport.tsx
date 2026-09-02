@@ -3,13 +3,12 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
-type SalesReportView = "hourly" | "daily" | "monthly" | "yoy";
+type SalesReportView = "hourly" | "daily" | "monthly";
 
 const VIEW_OPTIONS: Array<{ id: SalesReportView; label: string }> = [
   { id: "hourly", label: "Hourly" },
   { id: "daily", label: "Daily" },
   { id: "monthly", label: "Monthly" },
-  { id: "yoy", label: "YOY" },
 ];
 
 const SalesChart = dynamic(
@@ -66,21 +65,22 @@ function yearOptions(): number[] {
   return years;
 }
 
-function formatYoyChange(pct: number | null | undefined, priorYear?: number): string {
-  const vs = priorYear ? ` vs ${priorYear}` : "";
-  if (pct === null || pct === undefined) return `n/a${vs}`;
+function formatYoyChange(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined) return "n/a";
   const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct.toFixed(1)}%${vs}`;
+  return `${sign}${pct.toFixed(1)}%`;
 }
 
 export function SalesReport() {
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState<SalesReportView>("hourly");
+  const [compare, setCompare] = useState(false);
   const [date, setDate] = useState(todayIso);
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [title, setTitle] = useState("");
   const [total, setTotal] = useState(0);
+  const [priorTotal, setPriorTotal] = useState(0);
   const [yoyChangePct, setYoyChangePct] = useState<number | null>(null);
   const [currentYear, setCurrentYear] = useState<number | undefined>();
   const [priorYear, setPriorYear] = useState<number | undefined>();
@@ -94,9 +94,10 @@ export function SalesReport() {
       params.set("year", String(year));
       params.set("month", String(month));
     }
-    if (view === "monthly" || view === "yoy") params.set("year", String(year));
+    if (view === "monthly") params.set("year", String(year));
+    if (compare) params.set("compare", "1");
     return params.toString();
-  }, [view, date, month, year]);
+  }, [view, date, month, year, compare]);
 
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const loading = loadedQuery !== query;
@@ -126,6 +127,7 @@ export function SalesReport() {
         setError(null);
         setBuckets(data.buckets);
         setTotal(data.total ?? 0);
+        setPriorTotal(data.priorTotal ?? 0);
         setTitle(data.title ?? "");
         setYoyChangePct(data.yoyChangePct ?? null);
         setCurrentYear(data.currentYear);
@@ -170,6 +172,7 @@ export function SalesReport() {
                     setBuckets([]);
                     setTitle("");
                     setTotal(0);
+                    setPriorTotal(0);
                     setYoyChangePct(null);
                     setError(null);
                     setLoadedQuery(null);
@@ -204,7 +207,7 @@ export function SalesReport() {
                   </select>
                 </label>
               )}
-              {(view === "daily" || view === "monthly" || view === "yoy") && (
+              {(view === "daily" || view === "monthly") && (
                 <label className="report-picker">
                   <span>Year</span>
                   <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -216,20 +219,45 @@ export function SalesReport() {
                   </select>
                 </label>
               )}
+              <button
+                type="button"
+                className={`report-compare-btn${compare ? " report-compare-btn-active" : ""}`}
+                aria-pressed={compare}
+                onClick={() => setCompare((on) => !on)}
+              >
+                Compare YoY
+              </button>
             </div>
           </div>
 
           <div className="report-heading">
             <p className="report-kicker">{title || "Sales"}</p>
             <div className="report-total-row">
-              <p className="report-total">{loading ? "Loading…" : usd.format(total)}</p>
-              {!loading && view === "yoy" && (
-                <p className={`report-yoy-change ${yoyClass}`}>
-                  {formatYoyChange(yoyChangePct, priorYear)}
-                </p>
+              {loading ? (
+                <p className="report-total">Loading…</p>
+              ) : (
+                <>
+                  <p className="report-total">
+                    {usd.format(total)}
+                    {compare && currentYear != null && (
+                      <span className="report-year-tag">{currentYear}</span>
+                    )}
+                  </p>
+                  {compare && (
+                    <>
+                      <p className="report-total report-total-prior">
+                        {usd.format(priorTotal)}
+                        {priorYear != null && <span className="report-year-tag">{priorYear}</span>}
+                      </p>
+                      <p className={`report-yoy-change ${yoyClass}`}>
+                        {formatYoyChange(yoyChangePct)}
+                      </p>
+                    </>
+                  )}
+                </>
               )}
             </div>
-            {loading && (view === "monthly" || view === "yoy") && (
+            {loading && (view === "monthly" || compare) && (
               <p className="report-kicker">This can take a minute on first load.</p>
             )}
           </div>
@@ -239,7 +267,7 @@ export function SalesReport() {
               <SalesChart
                 data={buckets}
                 loading={loading}
-                yoy={view === "yoy"}
+                yoy={compare && !loading}
                 currentYear={currentYear ?? year}
                 priorYear={priorYear ?? year - 1}
               />

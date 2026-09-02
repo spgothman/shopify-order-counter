@@ -225,7 +225,7 @@ export async function getOrderSales(options: {
   return getCachedAllTimeSales();
 }
 
-// ── Sales report (hourly / daily / monthly / yoy) ──────────────────────────────
+// ── Sales report (hourly / daily / monthly) ────────────────────────────────────
 
 const REPORT_CACHE_SECONDS = 300;
 const REPORT_CACHE_MS = REPORT_CACHE_SECONDS * 1000;
@@ -258,13 +258,14 @@ async function remember<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return promise;
 }
 
-export type SalesReportView = "hourly" | "daily" | "monthly" | "yoy";
+export type SalesReportView = "hourly" | "daily" | "monthly";
 
 export interface SalesReportParams {
   view: SalesReportView;
   date?: string;
   year?: number;
   month?: number;
+  compare?: boolean;
 }
 
 export interface SalesReportBucket {
@@ -513,18 +514,61 @@ function yoyChangePct(current: number, prior: number): number | null {
   return ((current - prior) / prior) * 100;
 }
 
+function lastComparableHour(year: number, month: number, day: number, timeZone: string): number {
+  const now = getZonedParts(new Date(), timeZone);
+  if (year > now.year || (year === now.year && (month > now.month || (month === now.month && day > now.day)))) {
+    return 0;
+  }
+  if (year === now.year && month === now.month && day === now.day) return now.hour + 1;
+  return 24;
+}
+
+function priorYearDay(year: number, month: number, day: number) {
+  const priorYear = year - 1;
+  return { year: priorYear, month, day: Math.min(day, daysInMonth(priorYear, month)) };
+}
+
+function attachCompare(
+  view: SalesReportView,
+  title: string,
+  timeZone: string,
+  buckets: SalesReportBucket[],
+  priorValues: number[],
+  currentYear: number,
+  comparableCount: number,
+): SalesReportResult {
+  const merged = buckets.map((bucket, index) => ({
+    ...bucket,
+    priorSales: roundMoney(priorValues[index] ?? 0),
+  }));
+  const currentTotal = merged.slice(0, comparableCount).reduce((sum, bucket) => sum + bucket.sales, 0);
+  const priorTotal = merged.slice(0, comparableCount).reduce((sum, bucket) => sum + (bucket.priorSales ?? 0), 0);
+  return {
+    view,
+    title: `${title} vs ${currentYear - 1}`,
+    timezone: timeZone,
+    buckets: merged,
+    total: roundMoney(currentTotal),
+    priorTotal: roundMoney(priorTotal),
+    yoyChangePct: yoyChangePct(currentTotal, priorTotal),
+    currentYear,
+    priorYear: currentYear - 1,
+  };
+}
+
 async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportResult> {
   const timeZone = await getCachedShopTimeZone();
+  const compare = Boolean(params.compare);
 
   if (params.view === "hourly") {
     const parsed = params.date ? parseIsoDate(params.date) : null;
     if (!parsed) throw new Error("A valid date (YYYY-MM-DD) is required for hourly reports");
     const { year, month, day } = parsed;
-    const totals = await getHourlyBuckets(year, month, day, timeZone);
-    const buckets = totals.map((sales, hour) => ({
-      label: hourLabel(hour),
-      sales: roundMoney(sales),
-    }));
+    const prior = priorYearDay(year, month, day);
+    const [totals, priorTotals] = await Promise.all([
+      getHourlyBuckets(year, month, day, timeZone),
+      compare ? getHourlyBuckets(prior.year, prior.month, prior.day, timeZone) : Promise.resolve(null),
+    ]);
     const title = new Intl.DateTimeFormat("en-US", {
       weekday: "long",
       month: "long",
@@ -532,6 +576,21 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       year: "numeric",
       timeZone: "UTC",
     }).format(new Date(Date.UTC(year, month - 1, day)));
+    const buckets = totals.map((sales, hour) => ({
+      label: hourLabel(hour),
+      sales: roundMoney(sales),
+    }));
+    if (compare && priorTotals) {
+      return attachCompare(
+        "hourly",
+        title,
+        timeZone,
+        buckets,
+        priorTotals,
+        year,
+        lastComparableHour(year, month, day, timeZone),
+      );
+    }
     return {
       view: "hourly",
       title,
@@ -548,21 +607,37 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       throw new Error("A valid year and month are required for daily reports");
     }
     const days = daysInMonth(year, month);
+    const priorDays = daysInMonth(year - 1, month);
     const lastDay = lastComparableDay(year, month, timeZone);
-    const dayTotals = await Promise.all(
-      Array.from({ length: days }, (_, index) => {
-        const day = index + 1;
-        if (day > lastDay) return Promise.resolve(0);
-        return getDaySales(year, month, day, timeZone);
-      }),
-    );
+    const [dayTotals, priorDayTotals] = await Promise.all([
+      Promise.all(
+        Array.from({ length: days }, (_, index) => {
+          const day = index + 1;
+          if (day > lastDay) return Promise.resolve(0);
+          return getDaySales(year, month, day, timeZone);
+        }),
+      ),
+      compare
+        ? Promise.all(
+            Array.from({ length: days }, (_, index) => {
+              const day = index + 1;
+              if (day > priorDays) return Promise.resolve(0);
+              return getDaySales(year - 1, month, day, timeZone);
+            }),
+          )
+        : Promise.resolve(null),
+    ]);
+    const title = `${MONTH_LONG[month - 1]} ${year}`;
     const buckets = dayTotals.map((sales, index) => ({
       label: String(index + 1),
       sales: roundMoney(sales),
     }));
+    if (compare && priorDayTotals) {
+      return attachCompare("daily", title, timeZone, buckets, priorDayTotals, year, lastDay);
+    }
     return {
       view: "daily",
-      title: `${MONTH_LONG[month - 1]} ${year}`,
+      title,
       timezone: timeZone,
       buckets,
       total: roundMoney(dayTotals.reduce((sum, value) => sum + value, 0)),
@@ -572,59 +647,31 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
   const year = params.year;
   if (!year) throw new Error("A valid year is required for monthly reports");
   const lastMonth = lastComparableMonth(year, timeZone);
-
-  if (params.view === "yoy") {
-    const priorYear = year - 1;
-    const [currentTotals, priorTotals] = await Promise.all([
-      Promise.all(
-        Array.from({ length: 12 }, (_, index) => {
-          const month = index + 1;
-          if (month > lastMonth) return Promise.resolve(0);
-          return getMonthSales(year, month, timeZone);
-        }),
-      ),
-      Promise.all(
-        Array.from({ length: 12 }, (_, index) => getMonthSales(priorYear, index + 1, timeZone)),
-      ),
-    ]);
-    const buckets = MONTH_SHORT.map((label, index) => ({
-      label,
-      sales: roundMoney(currentTotals[index] ?? 0),
-      priorSales: roundMoney(priorTotals[index] ?? 0),
-    }));
-    const currentComparable = currentTotals
-      .slice(0, lastMonth)
-      .reduce((sum, value) => sum + value, 0);
-    const priorComparable = priorTotals
-      .slice(0, lastMonth)
-      .reduce((sum, value) => sum + value, 0);
-    return {
-      view: "yoy",
-      title: `${year} vs ${priorYear}`,
-      timezone: timeZone,
-      buckets,
-      total: roundMoney(currentComparable),
-      priorTotal: roundMoney(priorComparable),
-      yoyChangePct: yoyChangePct(currentComparable, priorComparable),
-      currentYear: year,
-      priorYear,
-    };
-  }
-
-  const monthTotals = await Promise.all(
-    Array.from({ length: 12 }, (_, index) => {
-      const month = index + 1;
-      if (month > lastMonth) return Promise.resolve(0);
-      return getMonthSales(year, month, timeZone);
-    }),
-  );
+  const [monthTotals, priorMonthTotals] = await Promise.all([
+    Promise.all(
+      Array.from({ length: 12 }, (_, index) => {
+        const month = index + 1;
+        if (month > lastMonth) return Promise.resolve(0);
+        return getMonthSales(year, month, timeZone);
+      }),
+    ),
+    compare
+      ? Promise.all(
+          Array.from({ length: 12 }, (_, index) => getMonthSales(year - 1, index + 1, timeZone)),
+        )
+      : Promise.resolve(null),
+  ]);
+  const title = String(year);
   const buckets = MONTH_SHORT.map((label, index) => ({
     label,
     sales: roundMoney(monthTotals[index] ?? 0),
   }));
+  if (compare && priorMonthTotals) {
+    return attachCompare("monthly", title, timeZone, buckets, priorMonthTotals, year, lastMonth);
+  }
   return {
     view: "monthly",
-    title: String(year),
+    title,
     timezone: timeZone,
     buckets,
     total: roundMoney(monthTotals.reduce((sum, value) => sum + value, 0)),

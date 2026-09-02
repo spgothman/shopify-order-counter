@@ -552,6 +552,46 @@ body {
   color: rgba(0, 0, 0, 0.5);
 }
 
+.report-total-prior {
+  color: #6a4f38;
+}
+
+.report-year-tag {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+  vertical-align: 0.35em;
+}
+
+.report-compare-btn {
+  align-self: flex-end;
+  padding: 7px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.report-compare-btn:hover {
+  color: rgba(0, 0, 0, 0.7);
+  border-color: rgba(0, 0, 0, 0.28);
+}
+
+.report-compare-btn-active {
+  background: rgba(0, 0, 0, 0.16);
+  border-color: rgba(0, 0, 0, 0.28);
+  color: rgba(0, 0, 0, 0.82);
+}
+
 .report-chart-wrap {
   position: relative;
   height: 380px;

@@ -4,7 +4,7 @@ import { getSalesReport, isShopifyConfigured, type SalesReportView } from "@/lib
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const VIEWS = new Set<SalesReportView>(["hourly", "daily", "monthly", "yoy"]);
+const VIEWS = new Set<SalesReportView>(["hourly", "daily", "monthly"]);
 
 export async function GET(request: NextRequest) {
   if (!isShopifyConfigured()) {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   if (!view) {
     return NextResponse.json(
-      { buckets: null, configured: true, error: "view must be hourly, daily, monthly, or yoy" },
+      { buckets: null, configured: true, error: "view must be hourly, daily, or monthly" },
       { status: 400 },
     );
   }
@@ -44,8 +44,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const compare =
+    searchParams.get("compare") === "1" || searchParams.get("compare") === "true";
+
   try {
-    const report = await getSalesReport({ view, date, year, month });
+    const report = await getSalesReport({ view, date, year, month, compare });
     return NextResponse.json({ ...report, configured: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch sales report";
