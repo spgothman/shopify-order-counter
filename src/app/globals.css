@@ -33,6 +33,60 @@ body {
   padding: 2rem;
 }
 
+.app-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.25rem 2rem 2rem;
+}
+
+.app-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 4px;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.app-tab {
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+
+.app-tab:hover {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.app-tab-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.app-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.app-page-report .app-content {
+  align-items: flex-start;
+}
+
 .counter-shell {
   width: min(1100px, 100%);
 }
@@ -387,6 +441,159 @@ body {
   color: #8b1e1e;
 }
 
+/* ── Sales report ────────────────────────────────────────────────────────────── */
+
+.report-panel {
+  padding: 28px 28px 24px;
+}
+
+.report-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.report-view-toggle {
+  position: static;
+}
+
+.report-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.report-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.report-picker span {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.report-picker input,
+.report-picker select {
+  padding: 7px 10px;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  color: #111;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+  color-scheme: light;
+}
+
+.report-picker input:focus,
+.report-picker select:focus {
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
+.report-heading {
+  margin-bottom: 12px;
+}
+
+.report-kicker {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.report-total {
+  margin: 4px 0 0;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #111;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-chart-wrap {
+  position: relative;
+  height: 380px;
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 8px 8px 4px;
+}
+
+.report-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.report-chart-loading .report-chart {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.report-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.report-spinner {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: rgba(0, 0, 0, 0.65);
+  border-radius: 50%;
+  animation: report-spin 0.7s linear infinite;
+}
+
+@keyframes report-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.report-tooltip {
+  background: #1a1a1a;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.report-tooltip-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.report-tooltip-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 900px: stack brand + display vertically ─────────────────────────────────── */
 @media (max-width: 900px) {
   .counter-content {
@@ -411,8 +618,21 @@ body {
 
 /* ── 640px: tighten padding, shrink tiles ─────────────────────────────────────── */
 @media (max-width: 640px) {
-  .counter-page {
+  .counter-page,
+  .app-page {
     padding: 1rem;
+  }
+
+  .report-panel {
+    padding: 20px 14px 16px;
+  }
+
+  .report-total {
+    font-size: 1.55rem;
+  }
+
+  .report-chart-wrap {
+    height: 280px;
   }
 
   .counter-frame {
@@ -463,8 +683,18 @@ body {
 
 /* ── 480px: smaller phones / landscape ───────────────────────────────────────── */
 @media (max-width: 480px) {
-  .counter-page {
+  .counter-page,
+  .app-page {
     padding: 0.75rem;
+  }
+
+  .app-tab {
+    padding: 8px 12px;
+    font-size: 0.64rem;
+  }
+
+  .report-total {
+    font-size: 1.35rem;
   }
 
   .counter-frame {
@@ -527,7 +757,8 @@ body {
 
 /* ── 400px: iPhone SE (375px) and iPhone 14/15 (390px) ───────────────────────── */
 @media (max-width: 400px) {
-  .counter-page {
+  .counter-page,
+  .app-page {
     padding: 0.5rem;
   }
 

@@ -1,12 +1,10 @@
-import { OrderCounter } from "@/components/OrderCounter";
+import { AppShell } from "@/components/AppShell";
 import { PasswordGate } from "@/components/PasswordGate";
 
 export default function Home() {
   return (
     <PasswordGate>
-      <main className="counter-page">
-        <OrderCounter />
-      </main>
+      <AppShell />
     </PasswordGate>
   );
 }
