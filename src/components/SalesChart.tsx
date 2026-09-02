@@ -4,15 +4,25 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
+interface ChartRow {
+  label: string;
+  sales: number;
+  priorSales?: number;
+}
+
 interface SalesChartProps {
-  data: Array<{ label: string; sales: number }>;
+  data: ChartRow[];
   loading?: boolean;
+  yoy?: boolean;
+  currentYear?: number;
+  priorYear?: number;
 }
 
 const usd = new Intl.NumberFormat("en-US", {
@@ -33,23 +43,34 @@ function ChartTooltip({
   label,
 }: {
   active?: boolean;
-  payload?: Array<{ value: number }>;
+  payload?: Array<{ name?: string; value?: number; color?: string }>;
   label?: string;
 }) {
-  if (!active || !payload?.[0]) return null;
+  if (!active || !payload?.length) return null;
   return (
     <div className="report-tooltip">
       <span className="report-tooltip-label">{label}</span>
-      <span className="report-tooltip-value">{usd.format(payload[0].value)}</span>
+      {payload.map((item) => (
+        <span key={item.name} className="report-tooltip-value">
+          <span className="report-tooltip-swatch" style={{ background: item.color }} />
+          {item.name}: {usd.format(item.value ?? 0)}
+        </span>
+      ))}
     </div>
   );
 }
 
-export function SalesChart({ data, loading = false }: SalesChartProps) {
+export function SalesChart({
+  data,
+  loading = false,
+  yoy = false,
+  currentYear,
+  priorYear,
+}: SalesChartProps) {
   return (
     <div className="report-chart">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 12, right: 8, left: 4, bottom: 4 }}>
+        <BarChart data={data} margin={{ top: 12, right: 8, left: 4, bottom: yoy ? 8 : 4 }}>
           <CartesianGrid stroke="rgba(0, 0, 0, 0.08)" vertical={false} />
           <XAxis
             dataKey="label"
@@ -65,17 +86,30 @@ export function SalesChart({ data, loading = false }: SalesChartProps) {
             tickLine={false}
             width={56}
           />
-          <Tooltip
-            cursor={{ fill: "rgba(0, 0, 0, 0.06)" }}
-            content={<ChartTooltip />}
-          />
+          <Tooltip cursor={{ fill: "rgba(0, 0, 0, 0.06)" }} content={<ChartTooltip />} />
+          {yoy && (
+            <Legend
+              wrapperStyle={{ fontSize: 12, fontWeight: 700, color: "rgba(0, 0, 0, 0.65)" }}
+            />
+          )}
           <Bar
             dataKey="sales"
+            name={yoy ? String(currentYear ?? "This year") : "Sales"}
             fill="#1a1a1a"
             radius={[5, 5, 0, 0]}
-            maxBarSize={42}
+            maxBarSize={yoy ? 28 : 42}
             isAnimationActive={!loading}
           />
+          {yoy && (
+            <Bar
+              dataKey="priorSales"
+              name={String(priorYear ?? "Prior year")}
+              fill="#b08968"
+              radius={[5, 5, 0, 0]}
+              maxBarSize={28}
+              isAnimationActive={!loading}
+            />
+          )}
         </BarChart>
       </ResponsiveContainer>
     </div>

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
+import { clearSalesReportMemoryCache } from "@/lib/shopify";
 
 function verifyWebhook(body: string, hmacHeader: string | null): boolean {
   const secret = process.env.SHOPIFY_API_SECRET;
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
 
   revalidateTag("order-count", { expire: 0 });
   revalidateTag("order-sales", { expire: 0 });
+  clearSalesReportMemoryCache();
 
   return NextResponse.json({ ok: true });
 }

@@ -3,7 +3,14 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
-type SalesReportView = "hourly" | "daily" | "monthly";
+type SalesReportView = "hourly" | "daily" | "monthly" | "yoy";
+
+const VIEW_OPTIONS: Array<{ id: SalesReportView; label: string }> = [
+  { id: "hourly", label: "Hourly" },
+  { id: "daily", label: "Daily" },
+  { id: "monthly", label: "Monthly" },
+  { id: "yoy", label: "YOY" },
+];
 
 const SalesChart = dynamic(
   () => import("./SalesChart").then((mod) => mod.SalesChart),
@@ -13,8 +20,12 @@ const SalesChart = dynamic(
 interface ReportResponse {
   view?: SalesReportView;
   title?: string;
-  buckets: Array<{ label: string; sales: number }> | null;
+  buckets: Array<{ label: string; sales: number; priorSales?: number }> | null;
   total?: number;
+  priorTotal?: number;
+  yoyChangePct?: number | null;
+  currentYear?: number;
+  priorYear?: number;
   configured: boolean;
   error?: string;
 }
@@ -55,6 +66,13 @@ function yearOptions(): number[] {
   return years;
 }
 
+function formatYoyChange(pct: number | null | undefined, priorYear?: number): string {
+  const vs = priorYear ? ` vs ${priorYear}` : "";
+  if (pct === null || pct === undefined) return `n/a${vs}`;
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(1)}%${vs}`;
+}
+
 export function SalesReport() {
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState<SalesReportView>("hourly");
@@ -63,7 +81,10 @@ export function SalesReport() {
   const [year, setYear] = useState(now.getFullYear());
   const [title, setTitle] = useState("");
   const [total, setTotal] = useState(0);
-  const [buckets, setBuckets] = useState<Array<{ label: string; sales: number }>>([]);
+  const [yoyChangePct, setYoyChangePct] = useState<number | null>(null);
+  const [currentYear, setCurrentYear] = useState<number | undefined>();
+  const [priorYear, setPriorYear] = useState<number | undefined>();
+  const [buckets, setBuckets] = useState<Array<{ label: string; sales: number; priorSales?: number }>>([]);
   const [error, setError] = useState<string | null>(null);
 
   const query = useMemo(() => {
@@ -73,7 +94,7 @@ export function SalesReport() {
       params.set("year", String(year));
       params.set("month", String(month));
     }
-    if (view === "monthly") params.set("year", String(year));
+    if (view === "monthly" || view === "yoy") params.set("year", String(year));
     return params.toString();
   }, [view, date, month, year]);
 
@@ -106,6 +127,9 @@ export function SalesReport() {
         setBuckets(data.buckets);
         setTotal(data.total ?? 0);
         setTitle(data.title ?? "");
+        setYoyChangePct(data.yoyChangePct ?? null);
+        setCurrentYear(data.currentYear);
+        setPriorYear(data.priorYear);
         setLoadedQuery(query);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -119,6 +143,14 @@ export function SalesReport() {
   }, [query]);
 
   const years = useMemo(() => yearOptions(), []);
+  const yoyClass =
+    yoyChangePct === null || yoyChangePct === undefined
+      ? "report-yoy-flat"
+      : yoyChangePct > 0
+        ? "report-yoy-up"
+        : yoyChangePct < 0
+          ? "report-yoy-down"
+          : "report-yoy-flat";
 
   return (
     <div className="counter-shell report-shell">
@@ -126,23 +158,24 @@ export function SalesReport() {
         <div className="counter-panel report-panel">
           <div className="report-toolbar">
             <div className="counter-filter report-view-toggle" role="tablist" aria-label="Report view">
-              {(["hourly", "daily", "monthly"] as const).map((option) => (
+              {VIEW_OPTIONS.map((option) => (
                 <button
-                  key={option}
+                  key={option.id}
                   type="button"
                   role="tab"
-                  aria-selected={view === option}
-                  className={`counter-filter-btn${view === option ? " counter-filter-btn-active" : ""}`}
+                  aria-selected={view === option.id}
+                  className={`counter-filter-btn${view === option.id ? " counter-filter-btn-active" : ""}`}
                   onClick={() => {
-                    setView(option);
+                    setView(option.id);
                     setBuckets([]);
                     setTitle("");
                     setTotal(0);
+                    setYoyChangePct(null);
                     setError(null);
                     setLoadedQuery(null);
                   }}
                 >
-                  {option[0].toUpperCase() + option.slice(1)}
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -171,7 +204,7 @@ export function SalesReport() {
                   </select>
                 </label>
               )}
-              {(view === "daily" || view === "monthly") && (
+              {(view === "daily" || view === "monthly" || view === "yoy") && (
                 <label className="report-picker">
                   <span>Year</span>
                   <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -188,14 +221,29 @@ export function SalesReport() {
 
           <div className="report-heading">
             <p className="report-kicker">{title || "Sales"}</p>
-            <p className="report-total">{loading ? "Loading…" : usd.format(total)}</p>
-            {loading && view === "monthly" && (
-              <p className="report-kicker">This can take a minute for a full year.</p>
+            <div className="report-total-row">
+              <p className="report-total">{loading ? "Loading…" : usd.format(total)}</p>
+              {!loading && view === "yoy" && (
+                <p className={`report-yoy-change ${yoyClass}`}>
+                  {formatYoyChange(yoyChangePct, priorYear)}
+                </p>
+              )}
+            </div>
+            {loading && (view === "monthly" || view === "yoy") && (
+              <p className="report-kicker">This can take a minute on first load.</p>
             )}
           </div>
 
           <div className={`report-chart-wrap${loading ? " report-chart-loading" : ""}`}>
-            {buckets.length > 0 && <SalesChart data={buckets} loading={loading} />}
+            {buckets.length > 0 && (
+              <SalesChart
+                data={buckets}
+                loading={loading}
+                yoy={view === "yoy"}
+                currentYear={currentYear ?? year}
+                priorYear={priorYear ?? year - 1}
+              />
+            )}
             {!loading && buckets.length === 0 && !error && (
               <p className="report-empty">No sales in this period.</p>
             )}

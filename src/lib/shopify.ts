@@ -225,9 +225,40 @@ export async function getOrderSales(options: {
   return getCachedAllTimeSales();
 }
 
-// ── Sales report (hourly / daily / monthly) ────────────────────────────────────
+// ── Sales report (hourly / daily / monthly / yoy) ──────────────────────────────
 
-export type SalesReportView = "hourly" | "daily" | "monthly";
+const REPORT_CACHE_SECONDS = 300;
+const REPORT_CACHE_MS = REPORT_CACHE_SECONDS * 1000;
+
+type MemoryEntry = { expires: number; value: unknown };
+const reportMemory = new Map<string, MemoryEntry>();
+const reportInflight = new Map<string, Promise<unknown>>();
+
+export function clearSalesReportMemoryCache() {
+  reportMemory.clear();
+}
+
+async function remember<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = reportMemory.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value as T;
+
+  const pending = reportInflight.get(key);
+  if (pending) return pending as Promise<T>;
+
+  const promise = fn()
+    .then((value) => {
+      reportMemory.set(key, { expires: Date.now() + REPORT_CACHE_MS, value });
+      return value;
+    })
+    .finally(() => {
+      reportInflight.delete(key);
+    });
+
+  reportInflight.set(key, promise);
+  return promise;
+}
+
+export type SalesReportView = "hourly" | "daily" | "monthly" | "yoy";
 
 export interface SalesReportParams {
   view: SalesReportView;
@@ -239,6 +270,7 @@ export interface SalesReportParams {
 export interface SalesReportBucket {
   label: string;
   sales: number;
+  priorSales?: number;
 }
 
 export interface SalesReportResult {
@@ -247,6 +279,10 @@ export interface SalesReportResult {
   timezone: string;
   buckets: SalesReportBucket[];
   total: number;
+  priorTotal?: number;
+  yoyChangePct?: number | null;
+  currentYear?: number;
+  priorYear?: number;
 }
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -358,124 +394,247 @@ function parseIsoDate(value: string): { year: number; month: number; day: number
   return { year, month, day };
 }
 
-async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
+function addCalendarDays(year: number, month: number, day: number, delta: number) {
+  const dt = new Date(Date.UTC(year, month - 1, day + delta));
+  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
+}
 
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex++;
-      results[index] = await fn(items[index]);
-    }
-  }
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
+function lastComparableMonth(year: number, timeZone: string): number {
+  const now = getZonedParts(new Date(), timeZone);
+  if (year > now.year) return 0;
+  if (year < now.year) return 12;
+  return now.month;
+}
+
+function lastComparableDay(year: number, month: number, timeZone: string): number {
+  const now = getZonedParts(new Date(), timeZone);
+  const days = daysInMonth(year, month);
+  if (year > now.year || (year === now.year && month > now.month)) return 0;
+  if (year < now.year || month < now.month) return days;
+  return now.day;
+}
+
+async function sumOrdersInRange(createdAtMin: string, createdAtMax: string): Promise<number> {
+  let total = 0;
+  await forEachShopifyOrder(
+    { created_at_min: createdAtMin, created_at_max: createdAtMax },
+    (order) => {
+      if (!isSalesOrderIncluded(order)) return;
+      total += calculateOrderSales(order);
+    },
+  );
+  return total;
+}
+
+async function fetchDaySales(year: number, month: number, day: number, timeZone: string): Promise<number> {
+  const next = addCalendarDays(year, month, day, 1);
+  return sumOrdersInRange(
+    rangeIso(year, month, day, timeZone),
+    rangeIso(next.year, next.month, next.day, timeZone, true),
+  );
+}
+
+async function fetchMonthSales(year: number, month: number, timeZone: string): Promise<number> {
+  const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+  return sumOrdersInRange(
+    rangeIso(year, month, 1, timeZone),
+    rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true),
+  );
+}
+
+async function fetchHourlyBuckets(
+  year: number,
+  month: number,
+  day: number,
+  timeZone: string,
+): Promise<number[]> {
+  const next = addCalendarDays(year, month, day, 1);
+  const totals = new Array<number>(24).fill(0);
+  await forEachShopifyOrder(
+    {
+      created_at_min: rangeIso(year, month, day, timeZone),
+      created_at_max: rangeIso(next.year, next.month, next.day, timeZone, true),
+    },
+    (order) => {
+      if (!isSalesOrderIncluded(order) || !order.created_at) return;
+      const parts = getZonedParts(new Date(order.created_at), timeZone);
+      if (parts.year !== year || parts.month !== month || parts.day !== day) return;
+      totals[parts.hour] += calculateOrderSales(order);
+    },
+  );
+  return totals;
+}
+
+const cachedDaySales = unstable_cache(
+  async (year: number, month: number, day: number, timeZone: string) =>
+    fetchDaySales(year, month, day, timeZone),
+  ["shopify-sales-day-v1"],
+  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
+);
+
+const cachedMonthSales = unstable_cache(
+  async (year: number, month: number, timeZone: string) =>
+    fetchMonthSales(year, month, timeZone),
+  ["shopify-sales-month-v1"],
+  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
+);
+
+const cachedHourlyBuckets = unstable_cache(
+  async (year: number, month: number, day: number, timeZone: string) =>
+    fetchHourlyBuckets(year, month, day, timeZone),
+  ["shopify-sales-hourly-v1"],
+  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
+);
+
+function getDaySales(year: number, month: number, day: number, timeZone: string): Promise<number> {
+  return remember(`day:${timeZone}:${year}-${month}-${day}`, () =>
+    cachedDaySales(year, month, day, timeZone),
+  );
+}
+
+function getMonthSales(year: number, month: number, timeZone: string): Promise<number> {
+  return remember(`month:${timeZone}:${year}-${month}`, () =>
+    cachedMonthSales(year, month, timeZone),
+  );
+}
+
+function getHourlyBuckets(year: number, month: number, day: number, timeZone: string): Promise<number[]> {
+  return remember(`hourly:${timeZone}:${year}-${month}-${day}`, () =>
+    cachedHourlyBuckets(year, month, day, timeZone),
+  );
+}
+
+function yoyChangePct(current: number, prior: number): number | null {
+  if (prior === 0) return current === 0 ? 0 : null;
+  return ((current - prior) / prior) * 100;
 }
 
 async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportResult> {
   const timeZone = await getCachedShopTimeZone();
 
-  let createdAtMin: string;
-  let createdAtMax: string;
-  let title: string;
-  let labels: string[];
-  let bucketFor: (parts: ReturnType<typeof getZonedParts>) => number | null;
-
   if (params.view === "hourly") {
     const parsed = params.date ? parseIsoDate(params.date) : null;
     if (!parsed) throw new Error("A valid date (YYYY-MM-DD) is required for hourly reports");
     const { year, month, day } = parsed;
-    const next = new Date(Date.UTC(year, month - 1, day + 1));
-    createdAtMin = rangeIso(year, month, day, timeZone);
-    createdAtMax = rangeIso(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), timeZone, true);
-    title = new Intl.DateTimeFormat("en-US", {
+    const totals = await getHourlyBuckets(year, month, day, timeZone);
+    const buckets = totals.map((sales, hour) => ({
+      label: hourLabel(hour),
+      sales: roundMoney(sales),
+    }));
+    const title = new Intl.DateTimeFormat("en-US", {
       weekday: "long",
       month: "long",
       day: "numeric",
       year: "numeric",
       timeZone: "UTC",
     }).format(new Date(Date.UTC(year, month - 1, day)));
-    labels = Array.from({ length: 24 }, (_, hour) => hourLabel(hour));
-    bucketFor = (parts) =>
-      parts.year === year && parts.month === month && parts.day === day ? parts.hour : null;
-  } else if (params.view === "daily") {
+    return {
+      view: "hourly",
+      title,
+      timezone: timeZone,
+      buckets,
+      total: roundMoney(totals.reduce((sum, value) => sum + value, 0)),
+    };
+  }
+
+  if (params.view === "daily") {
     const year = params.year;
     const month = params.month;
     if (!year || !month || month < 1 || month > 12) {
       throw new Error("A valid year and month are required for daily reports");
     }
-    const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-    createdAtMin = rangeIso(year, month, 1, timeZone);
-    createdAtMax = rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true);
-    title = `${MONTH_LONG[month - 1]} ${year}`;
     const days = daysInMonth(year, month);
-    labels = Array.from({ length: days }, (_, i) => String(i + 1));
-    bucketFor = (parts) => (parts.year === year && parts.month === month ? parts.day - 1 : null);
-  } else {
-    const year = params.year;
-    if (!year) throw new Error("A valid year is required for monthly reports");
-    title = String(year);
-    const nowParts = getZonedParts(new Date(), timeZone);
-    const lastMonth = year > nowParts.year ? 0 : year < nowParts.year ? 12 : nowParts.month;
-    const monthTotals = await mapPool(
-      Array.from({ length: lastMonth }, (_, index) => index + 1),
-      3,
-      async (month) => {
-        const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-        const min = rangeIso(year, month, 1, timeZone);
-        const max = rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true);
-        let sum = 0;
-        await forEachShopifyOrder(
-          { created_at_min: min, created_at_max: max },
-          (order) => {
-            if (!isSalesOrderIncluded(order)) return;
-            sum += calculateOrderSales(order);
-          },
-        );
-        return sum;
-      },
+    const lastDay = lastComparableDay(year, month, timeZone);
+    const dayTotals = await Promise.all(
+      Array.from({ length: days }, (_, index) => {
+        const day = index + 1;
+        if (day > lastDay) return Promise.resolve(0);
+        return getDaySales(year, month, day, timeZone);
+      }),
     );
-    const buckets = MONTH_SHORT.map((label, index) => ({
-      label,
-      sales: Math.round((monthTotals[index] ?? 0) * 100) / 100,
+    const buckets = dayTotals.map((sales, index) => ({
+      label: String(index + 1),
+      sales: roundMoney(sales),
     }));
-    const total = Math.round(monthTotals.reduce((sum, value) => sum + value, 0) * 100) / 100;
-    return { view: params.view, title, timezone: timeZone, buckets, total };
+    return {
+      view: "daily",
+      title: `${MONTH_LONG[month - 1]} ${year}`,
+      timezone: timeZone,
+      buckets,
+      total: roundMoney(dayTotals.reduce((sum, value) => sum + value, 0)),
+    };
   }
 
-  const totals = new Array<number>(labels.length).fill(0);
+  const year = params.year;
+  if (!year) throw new Error("A valid year is required for monthly reports");
+  const lastMonth = lastComparableMonth(year, timeZone);
 
-  await forEachShopifyOrder(
-    { created_at_min: createdAtMin, created_at_max: createdAtMax },
-    (order) => {
-      if (!isSalesOrderIncluded(order) || !order.created_at) return;
-      const index = bucketFor(getZonedParts(new Date(order.created_at), timeZone));
-      if (index === null || index < 0 || index >= totals.length) return;
-      totals[index] += calculateOrderSales(order);
-    },
+  if (params.view === "yoy") {
+    const priorYear = year - 1;
+    const [currentTotals, priorTotals] = await Promise.all([
+      Promise.all(
+        Array.from({ length: 12 }, (_, index) => {
+          const month = index + 1;
+          if (month > lastMonth) return Promise.resolve(0);
+          return getMonthSales(year, month, timeZone);
+        }),
+      ),
+      Promise.all(
+        Array.from({ length: 12 }, (_, index) => getMonthSales(priorYear, index + 1, timeZone)),
+      ),
+    ]);
+    const buckets = MONTH_SHORT.map((label, index) => ({
+      label,
+      sales: roundMoney(currentTotals[index] ?? 0),
+      priorSales: roundMoney(priorTotals[index] ?? 0),
+    }));
+    const currentComparable = currentTotals
+      .slice(0, lastMonth)
+      .reduce((sum, value) => sum + value, 0);
+    const priorComparable = priorTotals
+      .slice(0, lastMonth)
+      .reduce((sum, value) => sum + value, 0);
+    return {
+      view: "yoy",
+      title: `${year} vs ${priorYear}`,
+      timezone: timeZone,
+      buckets,
+      total: roundMoney(currentComparable),
+      priorTotal: roundMoney(priorComparable),
+      yoyChangePct: yoyChangePct(currentComparable, priorComparable),
+      currentYear: year,
+      priorYear,
+    };
+  }
+
+  const monthTotals = await Promise.all(
+    Array.from({ length: 12 }, (_, index) => {
+      const month = index + 1;
+      if (month > lastMonth) return Promise.resolve(0);
+      return getMonthSales(year, month, timeZone);
+    }),
   );
-
-  const buckets = totals.map((sales, index) => ({
-    label: labels[index],
-    sales: Math.round(sales * 100) / 100,
+  const buckets = MONTH_SHORT.map((label, index) => ({
+    label,
+    sales: roundMoney(monthTotals[index] ?? 0),
   }));
-  const total = Math.round(totals.reduce((sum, value) => sum + value, 0) * 100) / 100;
-
-  return { view: params.view, title, timezone: timeZone, buckets, total };
+  return {
+    view: "monthly",
+    title: String(year),
+    timezone: timeZone,
+    buckets,
+    total: roundMoney(monthTotals.reduce((sum, value) => sum + value, 0)),
+  };
 }
-
-const getCachedSalesReport = unstable_cache(
-  async (params: SalesReportParams) => fetchSalesReport(params),
-  ["shopify-sales-report-v2"],
-  { tags: ["order-sales"], revalidate: 60 },
-);
 
 export async function getSalesReport(params: SalesReportParams): Promise<SalesReportResult> {
   if (!isShopifyConfigured()) {
     return { view: params.view, title: "", timezone: "", buckets: [], total: 0 };
   }
 
-  return getCachedSalesReport(params);
+  return fetchSalesReport(params);
 }

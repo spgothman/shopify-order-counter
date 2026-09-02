@@ -4,7 +4,7 @@ import { getSalesReport, isShopifyConfigured, type SalesReportView } from "@/lib
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const VIEWS = new Set<SalesReportView>(["hourly", "daily", "monthly"]);
+const VIEWS = new Set<SalesReportView>(["hourly", "daily", "monthly", "yoy"]);
 
 export async function GET(request: NextRequest) {
   if (!isShopifyConfigured()) {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   if (!view) {
     return NextResponse.json(
-      { buckets: null, configured: true, error: "view must be hourly, daily, or monthly" },
+      { buckets: null, configured: true, error: "view must be hourly, daily, monthly, or yoy" },
       { status: 400 },
     );
   }

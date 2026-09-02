@@ -460,6 +460,10 @@ body {
   position: static;
 }
 
+.report-view-toggle .counter-filter-btn {
+  padding: 4px 10px;
+}
+
 .report-pickers {
   display: flex;
   flex-wrap: wrap;
@@ -519,6 +523,33 @@ body {
   letter-spacing: -0.03em;
   color: #111;
   font-variant-numeric: tabular-nums;
+}
+
+.report-total-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+
+.report-yoy-change {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-yoy-up {
+  color: #1d6b3a;
+}
+
+.report-yoy-down {
+  color: #8b1e1e;
+}
+
+.report-yoy-flat {
+  color: rgba(0, 0, 0, 0.5);
 }
 
 .report-chart-wrap {
@@ -592,6 +623,16 @@ body {
   font-size: 0.95rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-tooltip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
 }
 
 /* ── 900px: stack brand + display vertically ─────────────────────────────────── */
