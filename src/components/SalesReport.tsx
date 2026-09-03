@@ -4,11 +4,18 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 type SalesReportView = "hourly" | "daily" | "monthly";
+type CustomerType = "both" | "new" | "returning";
 
 const VIEW_OPTIONS: Array<{ id: SalesReportView; label: string }> = [
   { id: "hourly", label: "Hourly" },
   { id: "daily", label: "Daily" },
   { id: "monthly", label: "Monthly" },
+];
+
+const CUSTOMER_TYPE_OPTIONS: Array<{ id: CustomerType; label: string }> = [
+  { id: "both", label: "Both" },
+  { id: "new", label: "New" },
+  { id: "returning", label: "Returning" },
 ];
 
 const SalesChart = dynamic(
@@ -76,6 +83,7 @@ export function SalesReport() {
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState<SalesReportView>("hourly");
   const [compare, setCompare] = useState(false);
+  const [customerType, setCustomerType] = useState<CustomerType>("both");
   const [date, setDate] = useState(todayIso);
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -98,8 +106,9 @@ export function SalesReport() {
     }
     if (view === "monthly") params.set("year", String(year));
     if (compare) params.set("compare", "1");
+    if (customerType !== "both") params.set("customerType", customerType);
     return params.toString();
-  }, [view, date, month, year, compare]);
+  }, [view, date, month, year, compare, customerType]);
 
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const loading = loadedQuery !== query;
@@ -233,6 +242,27 @@ export function SalesReport() {
               >
                 Compare YoY
               </button>
+
+              <div className="report-pill-toggle" role="radiogroup" aria-label="Customer type">
+                <span
+                  className="report-pill-slider"
+                  style={{
+                    transform: `translateX(${CUSTOMER_TYPE_OPTIONS.findIndex((o) => o.id === customerType) * 100}%)`,
+                  }}
+                />
+                {CUSTOMER_TYPE_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={customerType === option.id}
+                    className={`report-pill-option${customerType === option.id ? " report-pill-option-active" : ""}`}
+                    onClick={() => setCustomerType(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

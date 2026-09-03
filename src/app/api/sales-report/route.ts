@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSalesReport, isShopifyConfigured, type SalesReportView } from "@/lib/shopify";
+import { getSalesReport, isShopifyConfigured, type SalesReportView, type CustomerType } from "@/lib/shopify";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -47,8 +47,14 @@ export async function GET(request: NextRequest) {
   const compare =
     searchParams.get("compare") === "1" || searchParams.get("compare") === "true";
 
+  const CUSTOMER_TYPES = new Set<CustomerType>(["both", "new", "returning"]);
+  const customerTypeParam = searchParams.get("customerType");
+  const customerType: CustomerType = CUSTOMER_TYPES.has(customerTypeParam as CustomerType)
+    ? (customerTypeParam as CustomerType)
+    : "both";
+
   try {
-    const report = await getSalesReport({ view, date, year, month, compare });
+    const report = await getSalesReport({ view, date, year, month, compare, customerType });
     return NextResponse.json({ ...report, configured: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to fetch sales report";

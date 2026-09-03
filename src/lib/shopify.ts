@@ -365,6 +365,7 @@ async function remember<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export type SalesReportView = "hourly" | "daily" | "monthly";
+export type CustomerType = "both" | "new" | "returning";
 
 export interface SalesReportParams {
   view: SalesReportView;
@@ -372,6 +373,7 @@ export interface SalesReportParams {
   year?: number;
   month?: number;
   compare?: boolean;
+  customerType?: CustomerType;
 }
 
 export interface SalesReportBucket {
@@ -515,16 +517,23 @@ function buildSalesShopifyql(
   until: string,
   timeZone: string,
   includeChannelIds: boolean,
+  customerType: CustomerType = "both",
 ): string {
   const tz = timeZone.replace(/'/g, "");
   const names = SALES_QL_CHANNEL_NAMES.map((name) => `'${name.replace(/'/g, "''")}'`).join(", ");
   const idFilter = includeChannelIds
     ? " AND sale_sales_channel_id NOT IN (1662707, 1615469, 2329312)"
     : "";
+  const customerFilter =
+    customerType === "new"
+      ? " AND new_or_returning_customer = 'New'"
+      : customerType === "returning"
+        ? " AND new_or_returning_customer = 'Returning'"
+        : "";
   return [
     "FROM sales",
     "SHOW net_sales + shipping_charges AS sales",
-    `WHERE sales_channel NOT IN (${names})${idFilter}`,
+    `WHERE sales_channel NOT IN (${names})${idFilter}${customerFilter}`,
     `TIMESERIES ${grain} WITH TIMEZONE '${tz}'`,
     `SINCE ${since} UNTIL ${until}`,
     "COMPARE TO previous_year",
@@ -648,9 +657,10 @@ async function fetchShopifyqlSeries(
   until: string,
   timeZone: string,
   bucketCount: number,
+  customerType: CustomerType = "both",
 ): Promise<ReportSeries> {
   const run = async (includeChannelIds: boolean) => {
-    const shopifyql = buildSalesShopifyql(grain, since, until, timeZone, includeChannelIds);
+    const shopifyql = buildSalesShopifyql(grain, since, until, timeZone, includeChannelIds, customerType);
     console.log("[sales-report] ShopifyQL", shopifyql);
     return shopifyGraphql<ShopifyqlQueryData>(SHOPIFYQL_REPORT_QUERY, { query: shopifyql });
   };
@@ -679,23 +689,23 @@ async function fetchShopifyqlSeries(
   return { current, prior };
 }
 
-function getHourlySeries(year: number, month: number, day: number, timeZone: string): Promise<ReportSeries> {
+function getHourlySeries(year: number, month: number, day: number, timeZone: string, customerType: CustomerType = "both"): Promise<ReportSeries> {
   const date = isoDate(year, month, day);
-  return remember(`ql:hourly:${timeZone}:${date}`, () =>
-    fetchShopifyqlSeries("hour", date, date, timeZone, 24),
+  return remember(`ql:hourly:${timeZone}:${date}:${customerType}`, () =>
+    fetchShopifyqlSeries("hour", date, date, timeZone, 24, customerType),
   );
 }
 
-function getDailySeries(year: number, month: number, timeZone: string): Promise<ReportSeries> {
+function getDailySeries(year: number, month: number, timeZone: string, customerType: CustomerType = "both"): Promise<ReportSeries> {
   const days = daysInMonth(year, month);
-  return remember(`ql:daily:${timeZone}:${year}-${month}`, () =>
-    fetchShopifyqlSeries("day", isoDate(year, month, 1), isoDate(year, month, days), timeZone, days),
+  return remember(`ql:daily:${timeZone}:${year}-${month}:${customerType}`, () =>
+    fetchShopifyqlSeries("day", isoDate(year, month, 1), isoDate(year, month, days), timeZone, days, customerType),
   );
 }
 
-function getMonthlySeries(year: number, timeZone: string): Promise<ReportSeries> {
-  return remember(`ql:monthly:${timeZone}:${year}`, () =>
-    fetchShopifyqlSeries("month", isoDate(year, 1, 1), isoDate(year, 12, 31), timeZone, 12),
+function getMonthlySeries(year: number, timeZone: string, customerType: CustomerType = "both"): Promise<ReportSeries> {
+  return remember(`ql:monthly:${timeZone}:${year}:${customerType}`, () =>
+    fetchShopifyqlSeries("month", isoDate(year, 1, 1), isoDate(year, 12, 31), timeZone, 12, customerType),
   );
 }
 
@@ -744,12 +754,13 @@ function attachCompare(
 async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportResult> {
   const timeZone = await getCachedShopTimeZone();
   const compare = Boolean(params.compare);
+  const ct = params.customerType ?? "both";
 
   if (params.view === "hourly") {
     const parsed = params.date ? parseIsoDate(params.date) : null;
     if (!parsed) throw new Error("A valid date (YYYY-MM-DD) is required for hourly reports");
     const { year, month, day } = parsed;
-    const series = await getHourlySeries(year, month, day, timeZone);
+    const series = await getHourlySeries(year, month, day, timeZone, ct);
     const title = new Intl.DateTimeFormat("en-US", {
       weekday: "long",
       month: "long",
@@ -790,7 +801,7 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       throw new Error("A valid year and month are required for daily reports");
     }
     const lastDay = lastComparableDay(year, month, timeZone);
-    const series = await getDailySeries(year, month, timeZone);
+    const series = await getDailySeries(year, month, timeZone, ct);
     const title = `${MONTH_LONG[month - 1]} ${year}`;
     const buckets = series.current.map((sales, index) => ({
       label: String(index + 1),
@@ -813,7 +824,7 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
   const year = params.year;
   if (!year) throw new Error("A valid year is required for monthly reports");
   const lastMonth = lastComparableMonth(year, timeZone);
-  const series = await getMonthlySeries(year, timeZone);
+  const series = await getMonthlySeries(year, timeZone, ct);
   const title = String(year);
   const buckets = MONTH_SHORT.map((label, index) => ({
     label,
