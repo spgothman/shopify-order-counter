@@ -101,10 +101,22 @@ export function SalesChart({
   currentYear,
   priorYear,
 }: SalesChartProps) {
+  const chartData = yoy
+    ? data.map((row) => ({
+        label: row.label,
+        priorSales: row.priorSales ?? 0,
+        sales: row.sales,
+      }))
+    : data;
+
   return (
     <div className="report-chart">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 12, right: 8, left: 4, bottom: yoy ? 8 : 4 }}>
+        <BarChart
+          key={yoy ? "yoy" : "single"}
+          data={chartData}
+          margin={{ top: 12, right: 8, left: 4, bottom: yoy ? 8 : 4 }}
+        >
           <CartesianGrid stroke="rgba(0, 0, 0, 0.08)" vertical={false} />
           <XAxis
             dataKey="label"
@@ -128,6 +140,7 @@ export function SalesChart({
           )}
           {yoy && (
             <Bar
+              id="prior-year"
               dataKey="priorSales"
               name={String(priorYear ?? "Prior year")}
               fill="#b08968"
@@ -137,6 +150,7 @@ export function SalesChart({
             />
           )}
           <Bar
+            id="current-year"
             dataKey="sales"
             name={yoy ? String(currentYear ?? "This year") : "Sales"}
             fill="#1a1a1a"

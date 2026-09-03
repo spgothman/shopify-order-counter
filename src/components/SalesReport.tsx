@@ -273,7 +273,7 @@ export function SalesReport() {
               <SalesChart
                 data={buckets}
                 loading={loading}
-                yoy={compare && !loading}
+                yoy={compare}
                 currentYear={currentYear ?? year}
                 priorYear={priorYear ?? year - 1}
               />
