@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type SalesReportView = "hourly" | "daily" | "monthly";
 type CustomerType = "both" | "new" | "returning";
+type ChannelMode = "dtc" | "retail";
 
 const VIEW_OPTIONS: Array<{ id: SalesReportView; label: string }> = [
   { id: "hourly", label: "Hourly" },
@@ -83,6 +84,7 @@ export function SalesReport() {
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState<SalesReportView>("hourly");
   const [compare, setCompare] = useState(false);
+  const [channelMode, setChannelMode] = useState<ChannelMode>("dtc");
   const [customerType, setCustomerType] = useState<CustomerType>("both");
   const [date, setDate] = useState(todayIso);
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -107,8 +109,9 @@ export function SalesReport() {
     if (view === "monthly") params.set("year", String(year));
     if (compare) params.set("compare", "1");
     if (customerType !== "both") params.set("customerType", customerType);
+    if (channelMode !== "dtc") params.set("channelMode", channelMode);
     return params.toString();
-  }, [view, date, month, year, compare, customerType]);
+  }, [view, date, month, year, compare, customerType, channelMode]);
 
   const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
   const loading = loadedQuery !== query;
@@ -242,6 +245,27 @@ export function SalesReport() {
               >
                 Compare YoY
               </button>
+
+              <div className="report-channel-toggle" role="radiogroup" aria-label="Channel mode">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={channelMode === "dtc"}
+                  className={`report-channel-btn${channelMode === "dtc" ? " report-channel-btn-active" : ""}`}
+                  onClick={() => setChannelMode("dtc")}
+                >
+                  DTC
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={channelMode === "retail"}
+                  className={`report-channel-btn${channelMode === "retail" ? " report-channel-btn-active" : ""}`}
+                  onClick={() => setChannelMode("retail")}
+                >
+                  Retail
+                </button>
+              </div>
 
               <div className="report-pill-toggle" role="radiogroup" aria-label="Customer type">
                 <span
