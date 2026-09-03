@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 
 const API_VERSION = "2024-10";
+const GRAPHQL_API_VERSION = "2026-07";
 
 function getConfig() {
   const storeDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -167,6 +168,74 @@ async function shopifyGet(url: string, accessToken: string): Promise<Response> {
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
   throw new Error("Shopify API rate limit exceeded");
+}
+
+async function shopifyGraphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  const { storeDomain, accessToken } = getConfig();
+  if (!storeDomain || !accessToken) throw new Error("Shopify credentials are not configured");
+
+  const url = `https://${storeDomain}/admin/api/${GRAPHQL_API_VERSION}/graphql.json`;
+  let lastError = "Shopify GraphQL request failed";
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
+      const waitMs = Math.min(8000, Math.max(500, (Number.isFinite(retryAfter) ? retryAfter : 1) * 1000) * (attempt + 1));
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
+    }
+
+    const json = (await response.json()) as {
+      data?: T;
+      errors?: unknown;
+    };
+
+    const errorList = Array.isArray(json.errors)
+      ? json.errors as Array<{ message?: string; extensions?: { code?: string } }>
+      : typeof json.errors === "string"
+        ? [{ message: json.errors }]
+        : json.errors && typeof json.errors === "object" && "message" in json.errors
+          ? [json.errors as { message?: string; extensions?: { code?: string } }]
+          : [];
+
+    const accessDenied = errorList.some((error) =>
+      /ACCESS_DENIED|read_reports|access scope/i.test(
+        `${error.extensions?.code ?? ""} ${error.message ?? ""}`,
+      ),
+    );
+    if (accessDenied || response.status === 403) {
+      throw new Error(
+        "Sales Report needs the read_reports Admin API scope. In Shopify admin: custom app → Configuration → enable “Read reports”, save, reinstall the app, then replace SHOPIFY_ACCESS_TOKEN with the new token.",
+      );
+    }
+
+    if (!response.ok) {
+      lastError = errorList[0]?.message ?? `Shopify GraphQL error (${response.status})`;
+      if (/invalid api key|unrecognized login|wrong password/i.test(lastError)) {
+        throw new Error(lastError);
+      }
+      continue;
+    }
+
+    if (errorList.length) {
+      throw new Error(errorList.map((error) => error.message ?? "GraphQL error").join("; "));
+    }
+
+    if (!json.data) throw new Error("Shopify GraphQL returned no data");
+    return json.data;
+  }
+
+  throw new Error(lastError);
 }
 
 async function forEachShopifyOrder(
@@ -353,37 +422,11 @@ const getCachedShopTimeZone = unstable_cache(
   { revalidate: 86400 },
 );
 
-async function fetchAccessScopes(): Promise<string[]> {
-  const { storeDomain, accessToken } = getConfig();
-  if (!storeDomain || !accessToken) return [];
-
-  const response = await fetch(
-    `https://${storeDomain}/admin/oauth/access_scopes.json`,
-    {
-      headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) {
-    console.warn("[sales-report] failed to read access scopes", response.status);
-    return [];
-  }
-  const data = (await response.json()) as { access_scopes?: Array<{ handle?: string }> };
-  const scopes = (data.access_scopes ?? []).map((scope) => scope.handle ?? "").filter(Boolean);
-  console.log("[sales-report] access scopes", scopes);
-  return scopes;
-}
-
 async function withPriorYearWarning(result: SalesReportResult): Promise<SalesReportResult> {
   if ((result.priorTotal ?? 0) > 0) return result;
-
-  const scopes = await fetchAccessScopes();
-  if (scopes.includes("read_all_orders")) return result;
-
   return {
     ...result,
-    warning:
-      "Shopify returned no prior-year orders. This app token can only read the last 60 days of orders. In Shopify admin: custom app → Configuration → enable “Read all orders”, save, reinstall the app, then replace SHOPIFY_ACCESS_TOKEN with the new token.",
+    warning: "Shopify Analytics returned no sales for this period last year.",
   };
 }
 
@@ -416,47 +459,6 @@ function getZonedParts(date: Date, timeZone: string) {
   };
 }
 
-function zonedTimeToUtc(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  second: number,
-  timeZone: string,
-): Date {
-  const wanted = Date.UTC(year, month - 1, day, hour, minute, second);
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-
-  const asUtcFromParts = (instant: Date) => {
-    const parts = formatter.formatToParts(instant);
-    const num = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
-    return Date.UTC(num("year"), num("month") - 1, num("day"), num("hour"), num("minute"), num("second"));
-  };
-
-  let utc = wanted;
-  utc -= asUtcFromParts(new Date(utc)) - wanted;
-  utc -= asUtcFromParts(new Date(utc)) - wanted;
-  return new Date(utc);
-}
-
-function rangeIso(year: number, month: number, day: number, timeZone: string, endExclusive = false): string {
-  const instant = zonedTimeToUtc(year, month, day, 0, 0, 0, timeZone);
-  if (endExclusive) {
-    return new Date(instant.getTime() - 1000).toISOString();
-  }
-  return instant.toISOString();
-}
-
 function parseIsoDate(value: string): { year: number; month: number; day: number } | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
@@ -465,11 +467,6 @@ function parseIsoDate(value: string): { year: number; month: number; day: number
   const day = Number(match[3]);
   if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return null;
   return { year, month, day };
-}
-
-function addCalendarDays(year: number, month: number, day: number, delta: number) {
-  const dt = new Date(Date.UTC(year, month - 1, day + delta));
-  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
 }
 
 function roundMoney(value: number): number {
@@ -491,84 +488,215 @@ function lastComparableDay(year: number, month: number, timeZone: string): numbe
   return now.day;
 }
 
-async function bucketOrdersInRange(
-  createdAtMin: string,
-  createdAtMax: string,
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function isoDate(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+type ReportGrain = "hour" | "day" | "month";
+type ReportSeries = { current: number[]; prior: number[] };
+
+const SALES_QL_CHANNEL_NAMES = [
+  "Draft Orders",
+  "TikTok",
+  "TikTok Shop",
+  "Facebook & Instagram",
+  "Facebook",
+  "Instagram",
+  "Loop Returns",
+];
+
+function buildSalesShopifyql(
+  grain: ReportGrain,
+  since: string,
+  until: string,
+  timeZone: string,
+  includeChannelIds: boolean,
+): string {
+  const tz = timeZone.replace(/'/g, "");
+  const names = SALES_QL_CHANNEL_NAMES.map((name) => `'${name.replace(/'/g, "''")}'`).join(", ");
+  const idFilter = includeChannelIds
+    ? " AND sale_sales_channel_id NOT IN (1662707, 1615469, 2329312)"
+    : "";
+  return [
+    "FROM sales",
+    "SHOW net_sales + shipping_charges AS sales",
+    `WHERE sales_channel NOT IN (${names})${idFilter}`,
+    `TIMESERIES ${grain} WITH TIMEZONE '${tz}'`,
+    `SINCE ${since} UNTIL ${until}`,
+    "COMPARE TO previous_year",
+    `ORDER BY ${grain} ASC`,
+  ].join(" ");
+}
+
+function parseMoney(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") return parseFloat(value) || 0;
+  if (value && typeof value === "object" && "amount" in value) {
+    return parseMoney((value as { amount?: unknown }).amount);
+  }
+  return 0;
+}
+
+function asRowRecords(
+  rows: unknown,
+  columns: Array<{ name?: string }> | undefined,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    if (row && typeof row === "object" && !Array.isArray(row)) {
+      return [row as Record<string, unknown>];
+    }
+    if (Array.isArray(row) && columns?.length) {
+      const record: Record<string, unknown> = {};
+      columns.forEach((column, index) => {
+        if (column.name) record[column.name] = row[index];
+      });
+      return [record];
+    }
+    return [];
+  });
+}
+
+function rowCurrentSales(row: Record<string, unknown>): number {
+  if (row.sales != null) return parseMoney(row.sales);
+  return parseMoney(row.net_sales) + parseMoney(row.shipping_charges);
+}
+
+function rowPriorSales(row: Record<string, unknown>): number {
+  if (row.comparison_sales__previous_year != null) {
+    return parseMoney(row.comparison_sales__previous_year);
+  }
+  if (row.comparison_net_sales__previous_year != null || row.comparison_shipping_charges__previous_year != null) {
+    return parseMoney(row.comparison_net_sales__previous_year) + parseMoney(row.comparison_shipping_charges__previous_year);
+  }
+  for (const [key, value] of Object.entries(row)) {
+    if (key.startsWith("comparison_") && key.includes("sales") && !key.includes("percent")) {
+      return parseMoney(value);
+    }
+  }
+  return 0;
+}
+
+function hourFromShopifyql(value: unknown, timeZone: string): number | null {
+  if (typeof value === "number" && value >= 0 && value <= 23) return Math.trunc(value);
+  if (typeof value !== "string" || !value) return null;
+  if (/Z|[+-]\d{2}:\d{2}$/.test(value)) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return getZonedParts(parsed, timeZone).hour;
+  }
+  const match = /T(\d{2})| (\d{2}):/.exec(value);
+  if (!match) return null;
+  return parseInt(match[1] ?? match[2], 10);
+}
+
+function calendarFromShopifyql(value: unknown): { year: number; month: number; day: number } | null {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?/.exec(value);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3] ?? "1"),
+  };
+}
+
+function bucketIndex(
+  grain: ReportGrain,
+  row: Record<string, unknown>,
+  timeZone: string,
+): number | null {
+  if (grain === "hour") {
+    return hourFromShopifyql(row.hour ?? row.hour_of_day, timeZone);
+  }
+  if (grain === "day") {
+    const parts = calendarFromShopifyql(row.day);
+    return parts ? parts.day - 1 : null;
+  }
+  const parts = calendarFromShopifyql(row.month);
+  return parts ? parts.month - 1 : null;
+}
+
+const SHOPIFYQL_REPORT_QUERY = `
+  query SalesReport($query: String!) {
+    shopifyqlQuery(query: $query) {
+      tableData {
+        columns { name dataType }
+        rows
+      }
+      parseErrors
+    }
+  }
+`;
+
+interface ShopifyqlQueryData {
+  shopifyqlQuery?: {
+    tableData?: {
+      columns?: Array<{ name?: string; dataType?: string }>;
+      rows?: unknown;
+    } | null;
+    parseErrors?: string[] | null;
+  } | null;
+}
+
+async function fetchShopifyqlSeries(
+  grain: ReportGrain,
+  since: string,
+  until: string,
+  timeZone: string,
   bucketCount: number,
-  bucketFor: (parts: ReturnType<typeof getZonedParts>) => number | null,
-  timeZone: string,
-): Promise<number[]> {
-  const totals = new Array<number>(bucketCount).fill(0);
-  console.log("[sales-report] fetching range", { createdAtMin, createdAtMax, bucketCount });
-  await forEachShopifyOrder(
-    { created_at_min: createdAtMin, created_at_max: createdAtMax },
-    (order) => {
-      if (!isSalesOrderIncluded(order) || !order.created_at) return;
-      const index = bucketFor(getZonedParts(new Date(order.created_at), timeZone));
-      if (index === null || index < 0 || index >= totals.length) return;
-      totals[index] += calculateOrderSales(order);
-    },
-  );
-  return totals;
+): Promise<ReportSeries> {
+  const run = async (includeChannelIds: boolean) => {
+    const shopifyql = buildSalesShopifyql(grain, since, until, timeZone, includeChannelIds);
+    console.log("[sales-report] ShopifyQL", shopifyql);
+    return shopifyGraphql<ShopifyqlQueryData>(SHOPIFYQL_REPORT_QUERY, { query: shopifyql });
+  };
+
+  let data = await run(true);
+  const parseErrors = data.shopifyqlQuery?.parseErrors?.filter(Boolean) ?? [];
+  if (parseErrors.some((error) => /sale_sales_channel_id/i.test(error))) {
+    data = await run(false);
+  }
+  const finalErrors = data.shopifyqlQuery?.parseErrors?.filter(Boolean) ?? [];
+  if (finalErrors.length) {
+    throw new Error(`ShopifyQL parse error: ${finalErrors.join("; ")}`);
+  }
+
+  const table = data.shopifyqlQuery?.tableData;
+  const current = new Array<number>(bucketCount).fill(0);
+  const prior = new Array<number>(bucketCount).fill(0);
+
+  for (const row of asRowRecords(table?.rows, table?.columns)) {
+    const index = bucketIndex(grain, row, timeZone);
+    if (index === null || index < 0 || index >= bucketCount) continue;
+    current[index] += rowCurrentSales(row);
+    prior[index] += rowPriorSales(row);
+  }
+
+  return { current, prior };
 }
 
-async function fetchHourlyBuckets(
-  year: number,
-  month: number,
-  day: number,
-  timeZone: string,
-): Promise<number[]> {
-  const next = addCalendarDays(year, month, day, 1);
-  return bucketOrdersInRange(
-    rangeIso(year, month, day, timeZone),
-    rangeIso(next.year, next.month, next.day, timeZone, true),
-    24,
-    (parts) =>
-      parts.year === year && parts.month === month && parts.day === day ? parts.hour : null,
-    timeZone,
+function getHourlySeries(year: number, month: number, day: number, timeZone: string): Promise<ReportSeries> {
+  const date = isoDate(year, month, day);
+  return remember(`ql:hourly:${timeZone}:${date}`, () =>
+    fetchShopifyqlSeries("hour", date, date, timeZone, 24),
   );
 }
 
-async function fetchDailyBuckets(
-  year: number,
-  month: number,
-  timeZone: string,
-): Promise<number[]> {
+function getDailySeries(year: number, month: number, timeZone: string): Promise<ReportSeries> {
   const days = daysInMonth(year, month);
-  const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-  return bucketOrdersInRange(
-    rangeIso(year, month, 1, timeZone),
-    rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true),
-    days,
-    (parts) => (parts.year === year && parts.month === month ? parts.day - 1 : null),
-    timeZone,
+  return remember(`ql:daily:${timeZone}:${year}-${month}`, () =>
+    fetchShopifyqlSeries("day", isoDate(year, month, 1), isoDate(year, month, days), timeZone, days),
   );
 }
 
-async function fetchMonthlyBuckets(year: number, timeZone: string): Promise<number[]> {
-  return bucketOrdersInRange(
-    rangeIso(year, 1, 1, timeZone),
-    rangeIso(year + 1, 1, 1, timeZone, true),
-    12,
-    (parts) => (parts.year === year ? parts.month - 1 : null),
-    timeZone,
+function getMonthlySeries(year: number, timeZone: string): Promise<ReportSeries> {
+  return remember(`ql:monthly:${timeZone}:${year}`, () =>
+    fetchShopifyqlSeries("month", isoDate(year, 1, 1), isoDate(year, 12, 31), timeZone, 12),
   );
-}
-
-function getHourlyBuckets(year: number, month: number, day: number, timeZone: string): Promise<number[]> {
-  return remember(`hourly:${timeZone}:${year}-${month}-${day}`, () =>
-    fetchHourlyBuckets(year, month, day, timeZone),
-  );
-}
-
-function getDailyBuckets(year: number, month: number, timeZone: string): Promise<number[]> {
-  return remember(`daily:${timeZone}:${year}-${month}`, () =>
-    fetchDailyBuckets(year, month, timeZone),
-  );
-}
-
-function getMonthlyBuckets(year: number, timeZone: string): Promise<number[]> {
-  return remember(`monthly:${timeZone}:${year}`, () => fetchMonthlyBuckets(year, timeZone));
 }
 
 function yoyChangePct(current: number, prior: number): number | null {
@@ -583,11 +711,6 @@ function lastComparableHour(year: number, month: number, day: number, timeZone: 
   }
   if (year === now.year && month === now.month && day === now.day) return now.hour + 1;
   return 24;
-}
-
-function priorYearDay(year: number, month: number, day: number) {
-  const priorYear = year - 1;
-  return { year: priorYear, month, day: Math.min(day, daysInMonth(priorYear, month)) };
 }
 
 function attachCompare(
@@ -626,11 +749,7 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
     const parsed = params.date ? parseIsoDate(params.date) : null;
     if (!parsed) throw new Error("A valid date (YYYY-MM-DD) is required for hourly reports");
     const { year, month, day } = parsed;
-    const prior = priorYearDay(year, month, day);
-    const [totals, priorTotals] = await Promise.all([
-      getHourlyBuckets(year, month, day, timeZone),
-      compare ? getHourlyBuckets(prior.year, prior.month, prior.day, timeZone) : Promise.resolve(null),
-    ]);
+    const series = await getHourlySeries(year, month, day, timeZone);
     const title = new Intl.DateTimeFormat("en-US", {
       weekday: "long",
       month: "long",
@@ -638,18 +757,18 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       year: "numeric",
       timeZone: "UTC",
     }).format(new Date(Date.UTC(year, month - 1, day)));
-    const buckets = totals.map((sales, hour) => ({
+    const buckets = series.current.map((sales, hour) => ({
       label: hourLabel(hour),
       sales: roundMoney(sales),
     }));
-    if (compare && priorTotals) {
+    if (compare) {
       return withPriorYearWarning(
         attachCompare(
           "hourly",
           title,
           timeZone,
           buckets,
-          priorTotals,
+          series.prior,
           year,
           lastComparableHour(year, month, day, timeZone),
         ),
@@ -660,7 +779,7 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       title,
       timezone: timeZone,
       buckets,
-      total: roundMoney(totals.reduce((sum, value) => sum + value, 0)),
+      total: roundMoney(series.current.reduce((sum, value) => sum + value, 0)),
     };
   }
 
@@ -671,18 +790,15 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       throw new Error("A valid year and month are required for daily reports");
     }
     const lastDay = lastComparableDay(year, month, timeZone);
-    const [dayTotals, priorDayTotals] = await Promise.all([
-      getDailyBuckets(year, month, timeZone),
-      compare ? getDailyBuckets(year - 1, month, timeZone) : Promise.resolve(null),
-    ]);
+    const series = await getDailySeries(year, month, timeZone);
     const title = `${MONTH_LONG[month - 1]} ${year}`;
-    const buckets = dayTotals.map((sales, index) => ({
+    const buckets = series.current.map((sales, index) => ({
       label: String(index + 1),
       sales: roundMoney(sales),
     }));
-    if (compare && priorDayTotals) {
+    if (compare) {
       return withPriorYearWarning(
-        attachCompare("daily", title, timeZone, buckets, priorDayTotals, year, lastDay),
+        attachCompare("daily", title, timeZone, buckets, series.prior, year, lastDay),
       );
     }
     return {
@@ -690,25 +806,22 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       title,
       timezone: timeZone,
       buckets,
-      total: roundMoney(dayTotals.reduce((sum, value) => sum + value, 0)),
+      total: roundMoney(series.current.reduce((sum, value) => sum + value, 0)),
     };
   }
 
   const year = params.year;
   if (!year) throw new Error("A valid year is required for monthly reports");
   const lastMonth = lastComparableMonth(year, timeZone);
-  const [monthTotals, priorMonthTotals] = await Promise.all([
-    getMonthlyBuckets(year, timeZone),
-    compare ? getMonthlyBuckets(year - 1, timeZone) : Promise.resolve(null),
-  ]);
+  const series = await getMonthlySeries(year, timeZone);
   const title = String(year);
   const buckets = MONTH_SHORT.map((label, index) => ({
     label,
-    sales: roundMoney(monthTotals[index] ?? 0),
+    sales: roundMoney(series.current[index] ?? 0),
   }));
-  if (compare && priorMonthTotals) {
+  if (compare) {
     return withPriorYearWarning(
-      attachCompare("monthly", title, timeZone, buckets, priorMonthTotals, year, lastMonth),
+      attachCompare("monthly", title, timeZone, buckets, series.prior, year, lastMonth),
     );
   }
   return {
@@ -716,7 +829,7 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
     title,
     timezone: timeZone,
     buckets,
-    total: roundMoney(monthTotals.reduce((sum, value) => sum + value, 0)),
+    total: roundMoney(series.current.reduce((sum, value) => sum + value, 0)),
   };
 }
 

@@ -14,7 +14,7 @@ export function GET() {
 
   const params = new URLSearchParams({
     client_id: clientId,
-    scope: "read_orders,read_all_orders",
+    scope: "read_orders,read_all_orders,read_reports",
     redirect_uri: redirectUri,
     state: "setup",
   });
