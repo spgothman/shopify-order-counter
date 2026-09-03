@@ -128,6 +128,7 @@ export function SalesChart({
             interval={data.length > 16 ? 1 : 0}
           />
           <YAxis
+            domain={[0, "auto"]}
             tickFormatter={formatAxis}
             tick={{ fill: "rgba(0, 0, 0, 0.45)", fontSize: 11, fontWeight: 600 }}
             axisLine={false}

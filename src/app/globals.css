@@ -467,6 +467,7 @@ body {
 .report-pickers {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   gap: 10px;
 }
 
@@ -486,7 +487,9 @@ body {
 
 .report-picker input,
 .report-picker select {
-  padding: 7px 10px;
+  box-sizing: border-box;
+  height: 38px;
+  padding: 0 10px;
   background: rgba(0, 0, 0, 0.08);
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
@@ -567,8 +570,12 @@ body {
 }
 
 .report-compare-btn {
-  align-self: flex-end;
-  padding: 7px 12px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 12px;
   border: 1px solid rgba(0, 0, 0, 0.18);
   background: rgba(0, 0, 0, 0.06);
   border-radius: 8px;
@@ -579,6 +586,7 @@ body {
   color: rgba(0, 0, 0, 0.5);
   cursor: pointer;
   transition: background 0.18s, color 0.18s, border-color 0.18s;
+  font-family: inherit;
 }
 
 .report-compare-btn:hover {
@@ -595,8 +603,10 @@ body {
 /* ── DTC / Retail channel toggle ───────────────────────────────────────────── */
 
 .report-channel-toggle {
+  box-sizing: border-box;
   display: inline-flex;
-  align-self: flex-end;
+  align-items: center;
+  height: 38px;
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.06);
@@ -604,7 +614,11 @@ body {
 }
 
 .report-channel-btn {
-  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 12px;
   border: none;
   background: transparent;
   font-size: 0.65rem;
@@ -633,10 +647,12 @@ body {
 /* ── Customer type pill toggle ─────────────────────────────────────────────── */
 
 .report-pill-toggle {
+  box-sizing: border-box;
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  align-self: flex-end;
+  align-items: center;
+  height: 38px;
   width: 240px;
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
@@ -659,7 +675,11 @@ body {
 .report-pill-option {
   position: relative;
   z-index: 1;
-  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0;
   border: none;
   background: none;
   font-size: 0.65rem;
