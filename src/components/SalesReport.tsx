@@ -25,6 +25,7 @@ interface ReportResponse {
   yoyChangePct?: number | null;
   currentYear?: number;
   priorYear?: number;
+  warning?: string;
   configured: boolean;
   error?: string;
 }
@@ -86,6 +87,7 @@ export function SalesReport() {
   const [priorYear, setPriorYear] = useState<number | undefined>();
   const [buckets, setBuckets] = useState<Array<{ label: string; sales: number; priorSales?: number }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ view });
@@ -115,12 +117,14 @@ export function SalesReport() {
         if (!data.configured) {
           setError("Add Shopify credentials to .env.local to connect your store.");
           setBuckets([]);
+          setWarning(null);
           setLoadedQuery(query);
           return;
         }
         if (data.error || !data.buckets) {
           setError(data.error ?? "Unable to load sales report");
           setBuckets([]);
+          setWarning(null);
           setLoadedQuery(query);
           return;
         }
@@ -132,6 +136,7 @@ export function SalesReport() {
         setYoyChangePct(data.yoyChangePct ?? null);
         setCurrentYear(data.currentYear);
         setPriorYear(data.priorYear);
+        setWarning(data.warning ?? null);
         setLoadedQuery(query);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -175,6 +180,7 @@ export function SalesReport() {
                     setPriorTotal(0);
                     setYoyChangePct(null);
                     setError(null);
+                    setWarning(null);
                     setLoadedQuery(null);
                   }}
                 >
@@ -278,6 +284,9 @@ export function SalesReport() {
             {loading && <div className="report-spinner" aria-hidden="true" />}
           </div>
 
+          {warning && compare && !loading && (
+            <p className="report-warning">{warning}</p>
+          )}
           {error && (
             <p className="counter-status counter-status-error">{error}</p>
           )}

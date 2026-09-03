@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export function GET() {
   const clientId = process.env.SHOPIFY_CLIENT_ID;
   const shop = process.env.SHOPIFY_STORE_DOMAIN;
-  const redirectUri = process.env.SHOPIFY_REDIRECT_URI ?? "https://shopify-order-counter.vercel.app/api/setup/callback";
+  const redirectUri = "https://liveorders.bpnsupps.com/api/setup/callback";
 
   if (!clientId || !shop) {
     return NextResponse.json(

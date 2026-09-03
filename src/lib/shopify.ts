@@ -319,6 +319,7 @@ export interface SalesReportResult {
   yoyChangePct?: number | null;
   currentYear?: number;
   priorYear?: number;
+  warning?: string;
 }
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -349,6 +350,40 @@ const getCachedShopTimeZone = unstable_cache(
   ["shopify-shop-timezone"],
   { revalidate: 86400 },
 );
+
+async function fetchAccessScopes(): Promise<string[]> {
+  const { storeDomain, accessToken } = getConfig();
+  if (!storeDomain || !accessToken) return [];
+
+  const response = await fetch(
+    `https://${storeDomain}/admin/oauth/access_scopes.json`,
+    {
+      headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    console.warn("[sales-report] failed to read access scopes", response.status);
+    return [];
+  }
+  const data = (await response.json()) as { access_scopes?: Array<{ handle?: string }> };
+  const scopes = (data.access_scopes ?? []).map((scope) => scope.handle ?? "").filter(Boolean);
+  console.log("[sales-report] access scopes", scopes);
+  return scopes;
+}
+
+async function withPriorYearWarning(result: SalesReportResult): Promise<SalesReportResult> {
+  if ((result.priorTotal ?? 0) > 0) return result;
+
+  const scopes = await fetchAccessScopes();
+  if (scopes.includes("read_all_orders")) return result;
+
+  return {
+    ...result,
+    warning:
+      "Shopify returned no prior-year orders. This app token can only read the last 60 days of orders. In Shopify admin: custom app → Configuration → enable “Read all orders”, save, reinstall the app, then replace SHOPIFY_ACCESS_TOKEN with the new token.",
+  };
+}
 
 function hourLabel(hour: number): string {
   if (hour === 0) return "12 AM";
@@ -629,14 +664,16 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       sales: roundMoney(sales),
     }));
     if (compare && priorTotals) {
-      return attachCompare(
-        "hourly",
-        title,
-        timeZone,
-        buckets,
-        priorTotals,
-        year,
-        lastComparableHour(year, month, day, timeZone),
+      return withPriorYearWarning(
+        attachCompare(
+          "hourly",
+          title,
+          timeZone,
+          buckets,
+          priorTotals,
+          year,
+          lastComparableHour(year, month, day, timeZone),
+        ),
       );
     }
     return {
@@ -694,7 +731,9 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
       sales: roundMoney(sales),
     }));
     if (compare && priorDayTotals) {
-      return attachCompare("daily", title, timeZone, buckets, priorDayTotals, year, lastDay);
+      return withPriorYearWarning(
+        attachCompare("daily", title, timeZone, buckets, priorDayTotals, year, lastDay),
+      );
     }
     return {
       view: "daily",
@@ -738,7 +777,9 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
     sales: roundMoney(monthTotals[index] ?? 0),
   }));
   if (compare && priorMonthTotals) {
-    return attachCompare("monthly", title, timeZone, buckets, priorMonthTotals, year, lastMonth);
+    return withPriorYearWarning(
+      attachCompare("monthly", title, timeZone, buckets, priorMonthTotals, year, lastMonth),
+    );
   }
   return {
     view: "monthly",
