@@ -126,14 +126,6 @@ export function SalesChart({
               wrapperStyle={{ fontSize: 12, fontWeight: 700, color: "rgba(0, 0, 0, 0.65)" }}
             />
           )}
-          <Bar
-            dataKey="sales"
-            name={yoy ? String(currentYear ?? "This year") : "Sales"}
-            fill="#1a1a1a"
-            radius={[5, 5, 0, 0]}
-            maxBarSize={yoy ? 28 : 42}
-            isAnimationActive={!loading}
-          />
           {yoy && (
             <Bar
               dataKey="priorSales"
@@ -144,6 +136,14 @@ export function SalesChart({
               isAnimationActive={!loading}
             />
           )}
+          <Bar
+            dataKey="sales"
+            name={yoy ? String(currentYear ?? "This year") : "Sales"}
+            fill="#1a1a1a"
+            radius={[5, 5, 0, 0]}
+            maxBarSize={yoy ? 28 : 42}
+            isAnimationActive={!loading}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
