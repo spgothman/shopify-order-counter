@@ -259,7 +259,7 @@ export async function getOrderSales(options: {
 
 // ── Sales report (hourly / daily / monthly) ────────────────────────────────────
 
-const REPORT_CACHE_SECONDS = 300;
+const REPORT_CACHE_SECONDS = 600;
 const REPORT_CACHE_MS = REPORT_CACHE_SECONDS * 1000;
 
 type MemoryEntry = { expires: number; value: unknown };
@@ -279,6 +279,8 @@ async function remember<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
   const pending = reportInflight.get(key);
   if (pending) return pending as Promise<T>;
+
+  console.log("[sales-report] cache MISS", key);
 
   const promise = fn()
     .then((value) => {
@@ -489,32 +491,25 @@ function lastComparableDay(year: number, month: number, timeZone: string): numbe
   return now.day;
 }
 
-async function sumOrdersInRange(createdAtMin: string, createdAtMax: string): Promise<number> {
-  let total = 0;
+async function bucketOrdersInRange(
+  createdAtMin: string,
+  createdAtMax: string,
+  bucketCount: number,
+  bucketFor: (parts: ReturnType<typeof getZonedParts>) => number | null,
+  timeZone: string,
+): Promise<number[]> {
+  const totals = new Array<number>(bucketCount).fill(0);
+  console.log("[sales-report] fetching range", { createdAtMin, createdAtMax, bucketCount });
   await forEachShopifyOrder(
     { created_at_min: createdAtMin, created_at_max: createdAtMax },
     (order) => {
-      if (!isSalesOrderIncluded(order)) return;
-      total += calculateOrderSales(order);
+      if (!isSalesOrderIncluded(order) || !order.created_at) return;
+      const index = bucketFor(getZonedParts(new Date(order.created_at), timeZone));
+      if (index === null || index < 0 || index >= totals.length) return;
+      totals[index] += calculateOrderSales(order);
     },
   );
-  return total;
-}
-
-async function fetchDaySales(year: number, month: number, day: number, timeZone: string): Promise<number> {
-  const next = addCalendarDays(year, month, day, 1);
-  const createdAtMin = rangeIso(year, month, day, timeZone);
-  const createdAtMax = rangeIso(next.year, next.month, next.day, timeZone, true);
-  console.log("[sales-report] day range", { year, month, day, timeZone, createdAtMin, createdAtMax });
-  return sumOrdersInRange(createdAtMin, createdAtMax);
-}
-
-async function fetchMonthSales(year: number, month: number, timeZone: string): Promise<number> {
-  const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-  const createdAtMin = rangeIso(year, month, 1, timeZone);
-  const createdAtMax = rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true);
-  console.log("[sales-report] month range", { year, month, timeZone, createdAtMin, createdAtMax });
-  return sumOrdersInRange(createdAtMin, createdAtMax);
+  return totals;
 }
 
 async function fetchHourlyBuckets(
@@ -524,62 +519,56 @@ async function fetchHourlyBuckets(
   timeZone: string,
 ): Promise<number[]> {
   const next = addCalendarDays(year, month, day, 1);
-  const createdAtMin = rangeIso(year, month, day, timeZone);
-  const createdAtMax = rangeIso(next.year, next.month, next.day, timeZone, true);
-  console.log("[sales-report] hourly range", { year, month, day, timeZone, createdAtMin, createdAtMax });
-  const totals = new Array<number>(24).fill(0);
-  await forEachShopifyOrder(
-    {
-      created_at_min: createdAtMin,
-      created_at_max: createdAtMax,
-    },
-    (order) => {
-      if (!isSalesOrderIncluded(order) || !order.created_at) return;
-      const parts = getZonedParts(new Date(order.created_at), timeZone);
-      if (parts.year !== year || parts.month !== month || parts.day !== day) return;
-      totals[parts.hour] += calculateOrderSales(order);
-    },
+  return bucketOrdersInRange(
+    rangeIso(year, month, day, timeZone),
+    rangeIso(next.year, next.month, next.day, timeZone, true),
+    24,
+    (parts) =>
+      parts.year === year && parts.month === month && parts.day === day ? parts.hour : null,
+    timeZone,
   );
-  return totals;
 }
 
-const cachedDaySales = unstable_cache(
-  async (year: number, month: number, day: number, timeZone: string) =>
-    fetchDaySales(year, month, day, timeZone),
-  ["shopify-sales-day-v1"],
-  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
-);
-
-const cachedMonthSales = unstable_cache(
-  async (year: number, month: number, timeZone: string) =>
-    fetchMonthSales(year, month, timeZone),
-  ["shopify-sales-month-v1"],
-  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
-);
-
-const cachedHourlyBuckets = unstable_cache(
-  async (year: number, month: number, day: number, timeZone: string) =>
-    fetchHourlyBuckets(year, month, day, timeZone),
-  ["shopify-sales-hourly-v1"],
-  { tags: ["order-sales"], revalidate: REPORT_CACHE_SECONDS },
-);
-
-function getDaySales(year: number, month: number, day: number, timeZone: string): Promise<number> {
-  const key = `day:${timeZone}:${year}-${month}-${day}`;
-  console.log("[sales-report] cache key", key);
-  return remember(key, () => cachedDaySales(year, month, day, timeZone));
+async function fetchDailyBuckets(
+  year: number,
+  month: number,
+  timeZone: string,
+): Promise<number[]> {
+  const days = daysInMonth(year, month);
+  const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+  return bucketOrdersInRange(
+    rangeIso(year, month, 1, timeZone),
+    rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true),
+    days,
+    (parts) => (parts.year === year && parts.month === month ? parts.day - 1 : null),
+    timeZone,
+  );
 }
 
-function getMonthSales(year: number, month: number, timeZone: string): Promise<number> {
-  const key = `month:${timeZone}:${year}-${month}`;
-  console.log("[sales-report] cache key", key);
-  return remember(key, () => cachedMonthSales(year, month, timeZone));
+async function fetchMonthlyBuckets(year: number, timeZone: string): Promise<number[]> {
+  return bucketOrdersInRange(
+    rangeIso(year, 1, 1, timeZone),
+    rangeIso(year + 1, 1, 1, timeZone, true),
+    12,
+    (parts) => (parts.year === year ? parts.month - 1 : null),
+    timeZone,
+  );
 }
 
 function getHourlyBuckets(year: number, month: number, day: number, timeZone: string): Promise<number[]> {
-  const key = `hourly:${timeZone}:${year}-${month}-${day}`;
-  console.log("[sales-report] cache key", key);
-  return remember(key, () => cachedHourlyBuckets(year, month, day, timeZone));
+  return remember(`hourly:${timeZone}:${year}-${month}-${day}`, () =>
+    fetchHourlyBuckets(year, month, day, timeZone),
+  );
+}
+
+function getDailyBuckets(year: number, month: number, timeZone: string): Promise<number[]> {
+  return remember(`daily:${timeZone}:${year}-${month}`, () =>
+    fetchDailyBuckets(year, month, timeZone),
+  );
+}
+
+function getMonthlyBuckets(year: number, timeZone: string): Promise<number[]> {
+  return remember(`monthly:${timeZone}:${year}`, () => fetchMonthlyBuckets(year, timeZone));
 }
 
 function yoyChangePct(current: number, prior: number): number | null {
@@ -638,16 +627,6 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
     if (!parsed) throw new Error("A valid date (YYYY-MM-DD) is required for hourly reports");
     const { year, month, day } = parsed;
     const prior = priorYearDay(year, month, day);
-    const currentMin = rangeIso(year, month, day, timeZone);
-    const currentNext = addCalendarDays(year, month, day, 1);
-    const currentMax = rangeIso(currentNext.year, currentNext.month, currentNext.day, timeZone, true);
-    const priorMin = rangeIso(prior.year, prior.month, prior.day, timeZone);
-    const priorNext = addCalendarDays(prior.year, prior.month, prior.day, 1);
-    const priorMax = rangeIso(priorNext.year, priorNext.month, priorNext.day, timeZone, true);
-    console.log("[sales-report] hourly compare ranges", {
-      current: { year, month, day, created_at_min: currentMin, created_at_max: currentMax },
-      prior: { ...prior, created_at_min: priorMin, created_at_max: priorMax },
-    });
     const [totals, priorTotals] = await Promise.all([
       getHourlyBuckets(year, month, day, timeZone),
       compare ? getHourlyBuckets(prior.year, prior.month, prior.day, timeZone) : Promise.resolve(null),
@@ -691,39 +670,10 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
     if (!year || !month || month < 1 || month > 12) {
       throw new Error("A valid year and month are required for daily reports");
     }
-    const days = daysInMonth(year, month);
-    const priorDays = daysInMonth(year - 1, month);
     const lastDay = lastComparableDay(year, month, timeZone);
-    const priorYear = year - 1;
-    if (compare) {
-      const currentMin = rangeIso(year, month, 1, timeZone);
-      const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
-      const currentMax = rangeIso(nextMonth.year, nextMonth.month, 1, timeZone, true);
-      const priorMin = rangeIso(priorYear, month, 1, timeZone);
-      const priorNext = month === 12 ? { year, month: 1 } : { year: priorYear, month: month + 1 };
-      const priorMax = rangeIso(priorNext.year, priorNext.month, 1, timeZone, true);
-      console.log("[sales-report] daily compare ranges", {
-        current: { year, month, created_at_min: currentMin, created_at_max: currentMax },
-        prior: { year: priorYear, month, created_at_min: priorMin, created_at_max: priorMax },
-      });
-    }
     const [dayTotals, priorDayTotals] = await Promise.all([
-      Promise.all(
-        Array.from({ length: days }, (_, index) => {
-          const day = index + 1;
-          if (day > lastDay) return Promise.resolve(0);
-          return getDaySales(year, month, day, timeZone);
-        }),
-      ),
-      compare
-        ? Promise.all(
-            Array.from({ length: days }, (_, index) => {
-              const day = index + 1;
-              if (day > priorDays) return Promise.resolve(0);
-              return getDaySales(year - 1, month, day, timeZone);
-            }),
-          )
-        : Promise.resolve(null),
+      getDailyBuckets(year, month, timeZone),
+      compare ? getDailyBuckets(year - 1, month, timeZone) : Promise.resolve(null),
     ]);
     const title = `${MONTH_LONG[month - 1]} ${year}`;
     const buckets = dayTotals.map((sales, index) => ({
@@ -747,29 +697,9 @@ async function fetchSalesReport(params: SalesReportParams): Promise<SalesReportR
   const year = params.year;
   if (!year) throw new Error("A valid year is required for monthly reports");
   const lastMonth = lastComparableMonth(year, timeZone);
-  if (compare) {
-    const currentMin = rangeIso(year, 1, 1, timeZone);
-    const currentMax = rangeIso(year + 1, 1, 1, timeZone, true);
-    const priorMin = rangeIso(year - 1, 1, 1, timeZone);
-    const priorMax = rangeIso(year, 1, 1, timeZone, true);
-    console.log("[sales-report] monthly compare ranges", {
-      current: { year, created_at_min: currentMin, created_at_max: currentMax },
-      prior: { year: year - 1, created_at_min: priorMin, created_at_max: priorMax },
-    });
-  }
   const [monthTotals, priorMonthTotals] = await Promise.all([
-    Promise.all(
-      Array.from({ length: 12 }, (_, index) => {
-        const month = index + 1;
-        if (month > lastMonth) return Promise.resolve(0);
-        return getMonthSales(year, month, timeZone);
-      }),
-    ),
-    compare
-      ? Promise.all(
-          Array.from({ length: 12 }, (_, index) => getMonthSales(year - 1, index + 1, timeZone)),
-        )
-      : Promise.resolve(null),
+    getMonthlyBuckets(year, timeZone),
+    compare ? getMonthlyBuckets(year - 1, timeZone) : Promise.resolve(null),
   ]);
   const title = String(year);
   const buckets = MONTH_SHORT.map((label, index) => ({

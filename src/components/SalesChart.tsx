@@ -37,16 +37,45 @@ function formatAxis(value: number): string {
   return `$${Math.round(value)}`;
 }
 
+function yoyChangePct(current: number, prior: number): number | null {
+  if (prior === 0) return current === 0 ? 0 : null;
+  return ((current - prior) / prior) * 100;
+}
+
+function formatYoyChange(pct: number | null): string {
+  if (pct === null) return "n/a";
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
 function ChartTooltip({
   active,
   payload,
   label,
 }: {
   active?: boolean;
-  payload?: Array<{ name?: string; value?: number; color?: string }>;
+  payload?: Array<{
+    name?: string;
+    value?: number;
+    color?: string;
+    dataKey?: string;
+    payload?: ChartRow;
+  }>;
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
+
+  const current = payload.find((item) => item.dataKey === "sales")?.value ?? 0;
+  const priorItem = payload.find((item) => item.dataKey === "priorSales");
+  const showYoy = priorItem != null;
+  const pct = showYoy ? yoyChangePct(current, priorItem.value ?? 0) : null;
+  const yoyClass =
+    pct === null || pct === 0
+      ? "report-tooltip-yoy-flat"
+      : pct > 0
+        ? "report-tooltip-yoy-up"
+        : "report-tooltip-yoy-down";
+
   return (
     <div className="report-tooltip">
       <span className="report-tooltip-label">{label}</span>
@@ -56,6 +85,11 @@ function ChartTooltip({
           {item.name}: {usd.format(item.value ?? 0)}
         </span>
       ))}
+      {showYoy && (
+        <span className={`report-tooltip-yoy ${yoyClass}`}>
+          YoY: {formatYoyChange(pct)}
+        </span>
+      )}
     </div>
   );
 }

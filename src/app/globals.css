@@ -607,7 +607,7 @@ body {
 }
 
 .report-chart-loading .report-chart {
-  opacity: 0.45;
+  opacity: 0.22;
   pointer-events: none;
 }
 
@@ -620,6 +620,34 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   color: rgba(0, 0, 0, 0.45);
+}
+
+.report-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(245, 236, 224, 0.72);
+  border-radius: 13px;
+  z-index: 2;
+}
+
+.report-loading-copy {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(0, 0, 0, 0.78);
+}
+
+.report-loading-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.48);
 }
 
 .report-warning {
@@ -635,13 +663,10 @@ body {
 }
 
 .report-spinner {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(0, 0, 0, 0.15);
-  border-top-color: rgba(0, 0, 0, 0.65);
+  width: 42px;
+  height: 42px;
+  border: 3px solid rgba(0, 0, 0, 0.12);
+  border-top-color: rgba(0, 0, 0, 0.7);
   border-radius: 50%;
   animation: report-spin 0.7s linear infinite;
 }
@@ -685,6 +710,26 @@ body {
   height: 8px;
   border-radius: 2px;
   flex: 0 0 auto;
+}
+
+.report-tooltip-yoy {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.report-tooltip-yoy-up {
+  color: #4ade80;
+}
+
+.report-tooltip-yoy-down {
+  color: #f87171;
+}
+
+.report-tooltip-yoy-flat {
+  color: rgba(255, 255, 255, 0.55);
 }
 
 /* ── 900px: stack brand + display vertically ─────────────────────────────────── */

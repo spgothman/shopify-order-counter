@@ -263,12 +263,12 @@ export function SalesReport() {
                 </>
               )}
             </div>
-            {loading && (view === "monthly" || compare) && (
-              <p className="report-kicker">This can take a minute on first load.</p>
-            )}
           </div>
 
-          <div className={`report-chart-wrap${loading ? " report-chart-loading" : ""}`}>
+          <div
+            className={`report-chart-wrap${loading ? " report-chart-loading" : ""}`}
+            aria-busy={loading}
+          >
             {buckets.length > 0 && (
               <SalesChart
                 data={buckets}
@@ -281,7 +281,15 @@ export function SalesReport() {
             {!loading && buckets.length === 0 && !error && (
               <p className="report-empty">No sales in this period.</p>
             )}
-            {loading && <div className="report-spinner" aria-hidden="true" />}
+            {loading && (
+              <div className="report-loading-overlay" role="status" aria-live="polite">
+                <div className="report-spinner" aria-hidden="true" />
+                <p className="report-loading-copy">Loading sales…</p>
+                <p className="report-loading-hint">
+                  {compare ? "Fetching this year and last year…" : "Fetching orders for this period…"}
+                </p>
+              </div>
+            )}
           </div>
 
           {warning && compare && !loading && (
